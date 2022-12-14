@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/scrappers/hdi.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/scrappers/hdi.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+var config = require('config');
+const fs = require('fs');
+const puppeteer = require('puppeteer');
+const utils = require('../utils');
+const path = require('path');
+const PDFParser = require("pdf2json");
+var XLSX = require("xlsx");
+var moment = require('moment');
+moment.locale('es')
+const _ = require('lodash');
+
+
+
+/********************
+*
+*   HDI
+*
+********************/
+// Params:
+// new_conciliacion: Conciliacion
+// credentials: CredencialHDI
+exports.scrapeHDI = function (new_conciliacion, credentials) {
+
+    let logActivities = [];
+
+    let period_date = moment(new_conciliacion.year + '-' + String(new_conciliacion.month).padStart(2, '0') + '-01');
+    let period = {
+        month: period_date.format('MMMM'),
+        month_number: period_date.format('MM'),
+        year: period_date.year()
+    }
+
+    return new Promise(async (resolve, reject) => {
+        let browser;
+        let page;
+
+        ////// CONTINUE HERE ---- SEPARATE ON BLOCKS
+
+        // Launching puppetteer
+        try {
+            console.log("Opening the browser......");
+            browser = await puppeteer.launch(config.scrapper.options);
+
+            //let browser = await browserInstance;
+            page = await browser.newPage();
+
+            await page.setViewport({ width: 1366, height: 768 });
+            
+            if ( config.scrapper.service.hdi.timeout )
+                page.setDefaultTimeout( config.scrapper.service.hdi.timeout );
+            
+            logActivities.push({
+                act: 'Robot ready',
+                status: true
+            });
+        } catch( err ) {
+            logActivities.push({
+                act: 'Robot ready',
+                status: false
+            });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+        // Validate Login
+        try { 
+            await hdiLogin(page, credentials);
+            logActivities.push({act: 'Login form', status: true });
+        } catch (err) {
+            logActivities.push({ act: 'Login form', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+         // Wait for main page ready        
+         try {
+            console.log(`Wait for login success`);
+            await page.waitForSelector('#ctl00_lnkLogOut');
+            logActivities.push({ act: 'Inicio de sesión correcto', status: true });
+            //await page.waitForTimeout(3000);
+        } catch(err) {
+            logActivities.push({ act: 'Inicio de sesión correcto', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+        // GoTo estado de cuenta URL
+        try {
+            console.log(`Navigate to estado de cuenta`);
+            await page.goto(config.scrapper.service.hdi.comisionesUrl);
+            // Wait for new page rendered
+            console.log(`Wait for page rendered`);
+            await page.waitForSelector('#ctl00_ContentPlaceHolder1_rdpFecha_dateInput_text');
+            logActivities.push({ act: 'Sección de estado de cuenta', status: true });
+            //await page.waitForTimeout(3000);
+        } catch(err) {
+            logActivities.push({ act: 'Sección de estado de cuenta', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+        // Download Files
+        try {
+            
+            let urlData = await hdiParseData(page, period.month, period.year, credentials.identifier, new_conciliacion._id);
+            logActivities.push({ act: 'Descarga de archivos', status: true, extradata: urlData });
+            await page.waitForTimeout(20000);
+            console.log(`Files must be downloaded`);
+
+        } catch(err) {
+            logActivities.push({ act: 'Descarga de archivos', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+
+        
+
+        // Convert PDF Files
+        try {
+            
+            await hdiTransformPDFToXLSX(new_conciliacion._id, credentials.identifier)
+            logActivities.push({ act: 'Convertir archivos PDF', status: true });
+            
+            console.log(`Files must be downloaded`);
+
+        } catch(err) {
+            logActivities.push({ act: 'Convertir archivos PDF', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+
+        // Logout
+        try {
+            await page.$eval('#ctl00_lnkLogOut', el => el.click());
+            logActivities.push({ act: 'Cerrar sesión', status: true });
+            console.log(`Logged out`);
+            await page.waitForTimeout(1000);
+
+        } catch(err) {
+            logActivities.push({ act: 'Cerrar sesión', status: false });
+            browser.close();
+            reject( logActivities );
+            return;
+        }
+
+        browser.close();
+        console.log(`Browser instance close`);
+        resolve(logActivities);
+
+
+    });
+
+}
+
+async function hdiLogin(page, credentials) {
+    
+    let url = config.scrapper.service.hdi.loginUrl;
+    console.log(`Navigating to ${url}...`);
+    // Navigate to the selected page
+    await page.goto(url)
+
+    // Wait for the required DOM to be rendered
+    console.log(`Wait for sign in form`);
+    await page.waitForSelector('#ctl00_DefaultContent_lgnacceso_UserName');
+
+    // Fill account
+    console.log(`Fill account field`);
+    await page.$eval('#ctl00_DefaultContent_lgnacceso_UserName', (el, credentials) => el.value = credentials.username, { username: credentials.username });
+    // Fill password
+    console.log(`Fill password field`);
+    await page.$eval('#ctl00_DefaultContent_lgnacceso_Password', (el, credentials) => el.value = credentials.password, { password: credentials.password });
+    // Send login form
+    console.log(`Click send button`);
+    await page.$eval('#ctl00_DefaultContent_lgnacceso_LoginButton', el => el.click());
+
+}
+
+async function hdiParseData(page, selectedMonth, selectedYear, agent_id, request_id) {
+
+    console.log(`Wait for anio selector`);
+    await page.waitForSelector('#ctl00_ContentPlaceHolder1_rdpFecha_dateInput_text');
+
+    console.log(`Current year selected`, selectedMonth + ' ' + selectedYear);
+    await page.focus('#ctl00_ContentPlaceHolder1_rdpFecha_dateInput_text');
+    await page.type('#ctl00_ContentPlaceHolder1_rdpFecha_dateInput_text', selectedMonth + ' ' + selectedYear);
+    await page.$eval('#ctl00_ContentPlaceHolder1_rdpFecha_dateInput_text', (el, params) => el.value = params.date, { date: selectedMonth + ' ' + selectedYear });
+
+
+    console.log(`Click to generate file`);
+    await page.focus('#ctl00_ContentPlaceHolder1_btiAceptar');
+    await new Promise(resolve => { setTimeout(resolve, 1000) });
+    await page.$eval('#ctl00_ContentPlaceHolder1_btiAceptar', el => el.click());
+
+    await new Promise(resolve => { setTimeout(resolve, 3000) });
+
+    // define base path
+    let basePath = './downloads/' + request_id + '/' + agent_id
+
+    // Set download behavior
+    if (!fs.existsSync(basePath))
+        fs.mkdirSync(basePath, { recursive: true });
+
+    await page._client.send('Page.setDownloadBehavior', {
+        behavior: 'allow',
+        downloadPath: basePath
+    });
+
+    await new Promise(resolve => { setTimeout(resolve, 5000) });
+
+    // evaluate will run the function in the page context
+    const evaluate = await page.evaluate(async (params) => {
+        console.log("Params: ", params)
+        const link = document.createElement("a");
+        link.setAttribute("href", params.url);
+        link.setAttribute("download", params.filename);
+        document.body.appendChild(link);
+        link.click();
+        return Promise.resolve(true);
+    }, { url: config.scrapper.service.hdi.reporteUrl, filename: agent_id });
+
+    return Promise.resolve({
+        urls: basePath
+    });
+    
+}
+
+/**
+ * 
+ * @param {String} request_id - Request id 
+ * @param {String} agent_id - Agent number
+ * @returns {Promise&lt;String>} - PDF table data
+ */
+// Finish promise function
+ function hdiTransformPDFToXLSX(request_id, agent_id) {
+    return new Promise( (resolve, reject) => {
+        const file_pdf = path.join(__dirname, '../../', 'downloads', request_id.toString(), agent_id.toString(), 'output.pdf');
+        const file_xlsx = path.join(__dirname, '../../', 'downloads', request_id.toString(), agent_id.toString(), 'output.xlsx');
+        if (fs.existsSync(file_pdf)) {
+            const pdfParser = new PDFParser();
+            pdfParser.on("pdfParser_dataError", errData => reject(errData.parserError) );
+            pdfParser.on("pdfParser_dataReady", pdfData => {
+                console.log('available data')
+                console.log(pdfData)
+                try {
+                    const table = hdiExctractData(pdfData);
+                    const workbook = XLSX.utils.book_new();
+                    const worksheet = XLSX.utils.aoa_to_sheet(table);
+                    XLSX.utils.book_append_sheet(workbook, worksheet);
+                    XLSX.writeFile(workbook, file_xlsx);
+                    resolve( file_xlsx )
+                } catch( err ) {
+                    reject ( err )
+                }
+            });
+            
+            pdfParser.loadPDF(file_pdf);
+        } else {
+            console.log("File path not exists: ", file_pdf);
+            reject( "File path not exists: " + file_pdf )
+        }
+    } );
+}
+
+function hdiExctractData(pdf) {
+    
+        let table_data = [];
+        let table_row = -1;
+        let rowY;
+        let date_regex = new RegExp(/\d*\/\d*\/\d*/gm);
+        let letter = new RegExp(/[a-zA-Z]/gm);
+        let digit = new RegExp(/\d/gm);
+
+        let moneda = '';
+
+        
+        pdf.Pages.forEach(page => {
+            
+            page.Texts = _.sortBy( page.Texts, ['y'] );
+
+            let rows = {};
+
+            page.Texts.forEach(text => {
+                if ( !rows[ text.y ] ) {
+                    rows[ text.y ] = [];
+                }
+                rows[ text.y ].push( text )
+            });
+
+            Object.keys( rows ).forEach( y => {
+                rows[y] = rows[y].filter( el => {
+                    return (
+                        (el.sw == 0.40625 &amp;&amp; el.R &amp;&amp; el.R[0] &amp;&amp; (el.R[0].S == -1)) // Posición en "y" y estilo de fila
+                        ||
+                        (el.sw == 0.32553125 &amp;&amp; el.x == 17.246) // Título Moneda Nacional
+                        ||
+                        (el.sw == 0.32553125 &amp;&amp; el.x == 18.529) // Título Dólares
+                    )
+                })
+            });
+
+            rows = Object.values( rows ).filter ( el => el.length == 1 || el.length > 4 );
+            rows = rows.map( r => _.sortBy( r, ['x'] ) ).map( r => r.map( c => c.R[0].T ));
+
+
+            // Convert rows
+            rows = rows.map( r => {
+                if ( r.length == 1 ) {
+                    // Setup actual currency when length is 1
+                    moneda = r[0];
+                }
+                if (r.length > 1) {
+                    // Insert currency at begining
+                    r.unshift( moneda );
+                    // Decode texts
+                    r = r.map( val =>  decodeURIComponent(val) );
+
+                    if (digit.test(r[2]) || r[2].length &lt; 3) {
+                        r.splice(2, 0, "");
+                    }
+                    if (letter.test(r[3]) || r[3].length &lt; 5) {
+                        r.splice(3, 0, "");
+                    }
+                    if (r[5].length > 5) {
+                        r.splice(5, 0, "");
+                    }
+                    if (letter.test(r[6])) {
+                        r.splice(6, 0, "");
+                    }
+                    if (r[7].length != 5) {
+                        r.splice(7, 0, "");
+                    }
+                    if (r[8].length &lt; 2 ) {
+                        r.splice(8, 0, "");
+                    }
+                }
+                return r;
+            });
+
+            // Remove currency titles
+            rows = rows.filter( el => el.length > 1);
+
+            
+            table_data = table_data.concat( rows );
+
+            
+
+        });
+        table_data = _.sortBy( table_data, [1] );
+        return table_data;
+
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

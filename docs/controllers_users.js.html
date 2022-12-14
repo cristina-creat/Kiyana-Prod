@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/users.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/users.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+var mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+var UserPermission = require('../models/user_permission');
+var UserRole = require('../models/user_role');
+var User = require('../models/user');
+var getSlug = require('speakingurl');
+var fs = require('fs');
+var config = require('config');
+var jwt = require('../services/jwt');
+var _ = require('lodash');
+const user = require('../models/user');
+
+/***************************************
+ *
+ *
+ *	Base permissions functions
+ *
+ *
+ ***************************************/
+var base_permissions = {
+    'Admin': {
+        'Stats': ['read'], // Need this item for panel access
+        'Tenant': ['read', 'create', 'update', 'delete'],
+        'Roles': ['read', 'create', 'update', 'delete'],
+        'Users': ['read', 'create', 'update', 'delete', 'bulk'],
+        'Catalogs': ['read', 'create', 'update', 'delete'],
+        'Conciliaciones': ['read', 'create','delete'],
+    }
+}
+
+
+exports.generatePermissions = function(req, res) {
+    // Clear all permissions
+    //UserPermission.remove({}, function(){});
+
+    // foreach module key
+    for (var module in base_permissions) {
+        for (var submodule in base_permissions[module]) {
+            base_permissions[module][submodule].forEach(function(item) {
+                var permission = [];
+                permission.push(module);
+                permission.push(submodule);
+                permission.push(item);
+
+                var new_data = new UserPermission();
+
+                new_data.name = permission.join(' ');
+                new_data.slug = getSlug(new_data.name);
+
+                new_data.save((err, permissionStored) => {
+                    if (err) {
+                        console.log('error creating ' + new_data.name + ' permission');
+                    }
+                });
+
+            });
+        }
+    }
+
+    res.send(base_permissions);
+}
+
+
+
+
+/***************************************
+ *
+ *
+ *	Users functions
+ *
+ *
+ ***************************************/
+
+exports.getUsers = function(req, res) {
+    /**
+     * Return a list of Tenant user
+     *
+     * returns User
+     **/
+    User.find({'_tenants._tenant': req.tenant}).sort({ firstname: 1 }).lean().exec(function(err, data) {
+        data = data.map( usr => {
+            usr._tenants = usr._tenants.find( tn => String(tn._tenant) == String(req.tenant) );
+            return usr;
+        });
+        res.send({ data: data });
+    });
+}
+
+exports.searchUser = function(req, res, next) {
+
+    var terms = req.params.query.split(' ');
+
+    var regexString = "";
+
+    for (var i = 0; i &lt; terms.length; i++) {
+        regexString += terms[i];
+        if (i &lt; terms.length - 1) regexString += '|';
+    }
+
+    var re = new RegExp(regexString, 'ig');
+
+    User.aggregate([{
+                $project: {
+                    fullname: { $concat: ['$firstname', ' ', '$lastname'] },
+                    firstname: 1,
+                    lastname: 1,
+                    email: 1,
+                    avatar: 1
+                }
+            },
+            { $match: { $or: [{ fullname: re }, { email: { $regex: "^" + req.params.query } }] } },
+            { $limit: 10 },
+        ])
+        .exec()
+        .then(users => {
+            res.send({ data: users });
+        }).catch(err => {
+            console.log(err);
+            next({ status: 500, message: 'Error searching users.' });
+        });
+
+}
+
+exports.addUser = async function(req, res, next) {
+    /**
+     * Creates a new user.
+     *
+     * user User 
+     * returns User
+     **/
+    
+    var params = req.body;
+
+    
+
+    if (!params.email) {
+        res.send({ message: 'El campo "email" es requerido' });
+        return;
+    }
+
+    // Find if user already exists
+    let prevUser = await User.findOne({email: params.email }).exec();
+
+    // If no previous user exists, create it
+    if ( !prevUser ) {
+        var user = new User({ email: params.email });
+        await user.save();
+        prevUser = await User.findOne({email: params.email }).exec();
+    }
+    
+    // Insert tenant into user (validate no already exists)
+    if ( !prevUser._tenants.find( tn => tn._tenant == req.tenant ) ) {
+        prevUser = await User.findByIdAndUpdate(prevUser._id,{$push:{_tenants:{_tenant:req.tenant, _role: params.role}}},{new: true}).exec();
+    }
+
+    prevUser._tenants = prevUser._tenants.find( tn => tn._tenant == req.tenant );
+
+    res.send( {
+        data: prevUser
+    });
+    /*
+    Object.keys(params).forEach(key => {
+        user[key] = params[key];
+    });
+
+    user.secret_key = Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16);
+
+    user.save((err, userStored) => {
+        if (err) {
+            next({ status: 200, message: 'El usuario ya existe.', error: err });
+        } else {
+            if (userStored)
+                res.send(userStored);
+            else {
+                next({ status: 200, message: 'Error al guardar el usuario.' });
+            }
+        }
+    });
+    */
+}
+
+exports.getUserById = function(req, res, next) {
+    /**
+     * Return  user information
+     *
+     * id Long Id of the user to retrive information
+     * returns User
+     **/
+    User.findOne({'_tenants._tenant': req.tenant, _id: req.params.id}).lean().exec((err, user) => {
+        if (err) {
+            next({ status: 200, message: 'User doesnt exists.' });
+        } else {
+            if (user) {
+                user._tenants = user._tenants.find( tn => String(tn._tenant) == String(req.tenant) );
+                res.send(user);
+            } else {
+                next({ status: 200, message: 'Error retriving user.' });
+            }
+        }
+    });
+
+}
+
+exports.updateUserById = function(req, res, next) {
+    /**
+     * Delete KIO user.
+     *
+     * id Long ID of th KIO user to update
+     * returns User
+     **/
+
+    let user_fields = ['firstname','lastname','email','sexo','role','extradata'];
+    const tenant_fields = ['id_colaborador','cylance','contact_phone','_role','_insurances','active'];
+    
+
+    var params = req.body;
+    if (!params.email) {
+        res.send({ message: 'El campo "email" es requerido' });
+        return;
+    }
+
+    // Remove role if user is not authorized to change role
+    if( req.user.role != 'Admin' &amp;&amp; params.role ) {
+        delete params.role;
+        user_fields = user_fields.filter( el => el != 'role' );
+    }
+
+    User.findOne({'_tenants._tenant': req.tenant, _id: req.params.id}).exec((err, user) => {
+        console.log( user );
+        if (err) {
+            next({ status: 200, message: 'User doesnt exists.' });
+        } else {
+            if (user) {
+                
+                user_fields.forEach( key => {
+                    user[key] = params[key];
+                });
+
+                let tenantIndex = user._tenants.findIndex( tn => String(tn._tenant) == String(req.tenant) );
+                
+                if ( tenantIndex != -1 &amp;&amp; user._tenants &amp;&amp; user._tenants[tenantIndex] ) {
+                    tenant_fields.forEach( key => {
+                        user._tenants[tenantIndex][key] = params._tenants[key];
+                    });
+                }
+
+                console.log( user );
+
+                user.save().then(
+                    usrResponse => {
+                        let tmpUser = usrResponse.toObject();
+                        tmpUser._tenants = tmpUser._tenants.find( tn => String(tn._tenant) == String(req.tenant) );
+                        res.send(tmpUser);
+                    }
+                ).catch( err => {
+                    next({ status: 200, message: 'Error updating user.', error: err });
+                });
+
+                
+            } else {
+                next({ status: 200, message: 'Error retriving user.' });
+            }
+        }
+    });
+
+
+    
+
+}
+
+exports.updateUserPasswordById = function(req, res, next) {
+    /**
+     * Delete KIO user.
+     *
+     * id Long ID of th KIO user to update
+     * returns User
+     **/
+    var user = {};
+    var params = req.body;
+    if (!params.password) {
+        res.send({ message: 'El campo "password" es requerido' });
+        return;
+    }
+
+    user.secret_key = Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16);
+    user.password = bcrypt.hashSync(user.secret_key+'-'+params.password, config.bcrypt_rounds);
+    
+
+    User.findOneAndUpdate({'_tenants._tenant': req.tenant, _id: req.params.id}, { $set: user }, { new: true }).exec((err, user) => {
+        if (err) {
+            next({ status: 200, message: 'Error updating user.', error: err });
+        } else {
+            if (user)
+                res.send(user);
+            else {
+                next({ status: 200, message: 'Error updating user.' });
+            }
+        }
+    });
+
+}
+
+exports.deleteUserById = async function(req, res, next) {
+    /**
+     * Delete user.
+     *
+     * id Long ID of th KIO user to delete
+     * returns User
+     **/
+
+    // Remove from tenant
+    // Find if user already exists
+    let prevUser = await User.findOne({_tenant: req.renant, _id: req.params.id }).exec();
+
+    prevUser._tenants = prevUser._tenants.filter( tn => String(tn._tenant) != String(req.tenant) );
+
+    await prevUser.save()
+
+    //prevUser._tenants = [];
+
+    res.send( {
+        data: prevUser
+    });
+    /*
+    User.remove({'_tenants._tenant': req.tenant, _id: req.params.id}, (err, userRemoved) => {
+        if (err) {
+            next({ status: 200, message: 'User doesnt exists.' });
+        } else {
+            if (userRemoved)
+                res.send(userRemoved);
+            else {
+                next({ status: 200, message: 'Error deleting user.' });
+            }
+        }
+    });
+    */
+
+}
+
+
+exports.bulkUsers = async function(req, res, next) {
+    /**
+     * Update users by bulk array.
+     *
+     * user User 
+     * returns User
+     **/
+
+     req.body.users = req.body.users.map( el => {
+         el.email = el.email.toLowerCase();
+         if ( el._tenant &amp;&amp; el._tenant._role ) {
+             el._tenant._role = mongoose.Types.ObjectId( el._tenant._role );
+         }
+         return el;
+    });
+
+    // Inser or update global users
+    
+    let global_userdata = _.cloneDeep(req.body.users).map( el => {
+        delete el._tenant;
+        delete el.created_at;
+        delete el.updated_at;
+        delete el.role;
+        //delete el.password;
+        delete el.extra_data;
+        delete el.secret_key;
+        delete el.last_login;
+        if ( el.password ) {
+            el.secret_key = Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16);
+            el.password = bcrypt.hashSync(el.secret_key+'-'+el.password, config.bcrypt_rounds);
+        }
+        return el;
+    });
+
+    global_userdata = global_userdata.filter( el => el.email );
+
+    var bulkOps = global_userdata.map(el => ({
+        updateOne: {
+            filter: { email: el.email },
+            // Where field is the field you want to update
+            update: {
+                $set: el
+            },
+            upsert: true
+        }
+    }));
+    
+    // Update all global data
+    let globalResults = await User.collection.bulkWrite(bulkOps);
+
+    let tenant_userdata = {};
+    
+    // Filter only users with email, tenant and role
+    req.body.users.filter( el => (el.email &amp;&amp; el._tenant &amp;&amp; el._tenant._role) ).forEach( el => {
+        tenant_userdata[ el.email ] = el._tenant
+   });
+
+    // Get user to bulk update
+    User.find({ email: { $in: Object.keys(tenant_userdata) } }).then(
+        updateUsers => {
+
+            updateUsers.map( async u => {
+                let tenantIndex = u._tenants.findIndex( tn => String(tn._tenant) == String(req.tenant) );
+
+                if ( tenantIndex != -1 &amp;&amp; u._tenants &amp;&amp; u._tenants[tenantIndex] ) {
+                    let tenant_fields = tenant_userdata[u.email];
+                    
+                    if ( tenant_fields ) {
+                        Object.keys(tenant_fields).forEach( key => {
+                            u._tenants[tenantIndex][key] = tenant_fields[key];
+                        });
+                    }
+                    
+                } else {
+                    let _tenant = {};
+                    let tenant_fields = tenant_userdata[u.email];
+                    if ( tenant_fields ) {
+                        Object.keys(tenant_fields).forEach( key => {
+                            _tenant[key] = tenant_fields[key];
+                        });
+                    }
+                    _tenant._tenant = req.tenant;
+                    u._tenants.push(_tenant)
+                }
+
+                await u.save();
+
+            });
+            // let finalResults = {... globalResults, nTenant: updateUsers.length};
+            // res.send( finalResults );
+            globalResults.result.nTenant = updateUsers.length;
+            res.send( globalResults );
+            
+        }
+    ).catch(
+        err => {
+            next({ status: 200, message: 'Error updating userdata tenant.' });
+        }
+    );
+    
+}
+
+/***************************************
+ *
+ *
+ *	Beneficiaries functions
+ *
+ *
+ ***************************************/
+exports.getUserBeneficiariesById = function(req, res, next) {
+    Beneficiary.find({ _user: req.params.user }).exec((err, beneficiaries) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving beneficiaries.' });
+        } else {
+            res.send(beneficiaries);
+        }
+    });
+}
+
+exports.addUserBeneficiary = function(req, res, next) {
+
+    var beneficiary = new Beneficiary();
+
+    Object.keys(req.body).forEach(param => {
+        if (req.body[param]) {
+            beneficiary[param] = req.body[param];
+        }
+    });
+
+    beneficiary.secret_key = Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16);
+
+    beneficiary.save((err, beneficiaryStored) => {
+        if (err || !beneficiaryStored) {
+            next({ status: 200, message: 'Ha ocurrido un error al guardar la informuación.', error: err });
+        } else {
+            res.send(beneficiaryStored);
+        }
+    });
+}
+
+exports.updateUserBeneficiaryById = function(req, res, next) {
+
+    var beneficiary = {};
+
+    Object.keys(req.body).forEach(param => {
+        beneficiary[param] = req.body[param];
+    })
+    Beneficiary.findByIdAndUpdate(req.params.id, { $set: beneficiary }, { new: true }).exec((err, beneficiaryStored) => {
+        if (err || !beneficiaryStored) {
+            next({ status: 200, message: 'Ha ocurrido un error al guardar la informuación.', error: err });
+        } else {
+            res.send(beneficiaryStored);
+        }
+    });
+}
+
+exports.deleteUserBeneficiaryById = function(req, res, next) {
+    /**
+     * Delete user.
+     *
+     * id Long ID of th KIO user to delete
+     * returns User
+     **/
+    Beneficiary.remove({ _id: req.params.id }, (err, beneficiaryRemoved) => {
+        if (err) {
+            next({ status: 200, message: 'Beneficiary doesnt exists.' });
+        } else {
+            if (beneficiaryRemoved)
+                res.send(beneficiaryRemoved);
+            else {
+                next({ status: 200, message: 'Error deleting beneficiary.' });
+            }
+        }
+    });
+
+}
+
+
+
+/***************************************
+ *
+ *
+ *	Insurance files functions
+ *
+ *
+ ***************************************/
+exports.getAllUserFilesByInsuranceId = function(req, res, next) {
+
+    var populate = [
+        { path: '_user', select: { _id: 1, email: 1 } }
+    ];
+
+    UserFile.find({ _tenant:req.tenant, _insurance: req.params.insurance }).populate( populate ).exec((err, userFiles) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving files.' });
+        } else {
+            res.send(userFiles);
+        }
+    });
+}
+
+exports.getAllEmptyUserFilesByInsuranceId = function(req, res, next) {
+
+    var populate = [
+        { path: '_user', select: { _id: 1, email: 1 } }
+    ];
+
+    UserFile.find({ _tenant: req.tenant, _insurance: req.params.insurance }).populate( populate ).exec((err, userFiles) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving files.' });
+        } else {
+
+            var insurance_id = req.params.insurance;
+            var path = config.poliza_dir + req.tenant + '/' + insurance_id;
+            fs.readdir(path, ( err, filesList) => {
+
+                if ( err || !filesList ) {
+                    console.error( err )
+                    res.send([]);
+                    return;
+                }
+                // Filter only not existent in files list
+                var emptyFiles = userFiles.filter( el => filesList.indexOf(el.file) == -1 )
+                // data contains all file names
+                res.send(emptyFiles)
+            })
+            
+            //res.send(userFiles);
+        }
+    });
+}
+
+exports.getUserFilesByInsuranceId = function(req, res, next) {
+    UserFile.find({ _user: req.params.user, _insurance: req.params.insurance, _tenant: req.tenant }).exec((err, userFiles) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving files.' });
+        } else {
+            res.send(userFiles);
+        }
+    });
+}
+
+exports.addUserFileByInsuranceId = function(req, res, next) {
+
+    var body = {};
+    Object.keys(req.body).map(key => {
+        if (req.body[key] &amp;&amp; req.body[key] != 'null') {
+            body[key] = req.body[key];
+            if (key == 'extra') {
+                body[key] = JSON.parse(req.body[key]);
+            }
+
+        }
+    })
+
+    body._tenant = req.tenant;
+
+    User.findById(req.params.user).exec((err, user) => {
+        if (err || !user) {
+            next({ status: 200, message: 'Error saving file.' });
+        } else {
+            // remove not card files
+            Object.keys(req.files).filter(el => el != 'file').forEach(fl => {
+                fs.unlinkSync(req.files[fl].path);
+            });
+            if (req.files &amp;&amp; req.files.file) {
+                var ts = Math.round((new Date()).getTime() / 1000);
+                var id_colaborador = user.id_colaborador || user._id;
+                var filename = req.body._insurance + '_' + id_colaborador + '-' + ts + '.pdf';
+                // Validate folder exists
+                if (!fs.existsSync(config.poliza_dir + req.tenant)) {
+                    // Do something
+                    fs.mkdirSync(config.poliza_dir + req.tenant);
+                }
+
+                // Validate folder exists
+                if (!fs.existsSync(config.poliza_dir + req.tenant + '/' + req.body._insurance)) {
+                    // Do something
+                    fs.mkdirSync(config.poliza_dir + req.tenant + '/' + req.body._insurance);
+                }
+                fs.renameSync(req.files.file.path, config.poliza_dir + req.tenant + '/' + req.body._insurance + '/' + filename);
+                var userFile = new UserFile(body);
+                userFile.file = filename;
+
+                userFile.save((err, fileStored) => {
+                    if (err ||  !fileStored) {
+                        next({ status: 200, message: 'Ha ocurrido un error al guardar el archivo.', error: err });
+                    } else {
+                        res.send(fileStored);
+                    }
+                })
+
+            } else {
+                next({ status: 200, message: 'File is required.' });
+            }
+        }
+    });
+}
+
+exports.updateUserFileByInsuranceId = function(req, res, next) {
+
+    User.findById(req.params.user).exec((err, user) => {
+        if (err || !user) {
+            next({ status: 200, message: 'Error saving file.' });
+        } else {
+            // remove not auto files
+            if (req.files) {
+                Object.keys(req.files).filter(el => el != 'file').forEach(fl => {
+                    fs.unlinkSync(req.files[fl].path);
+                });
+            }
+
+            // Find old poliza
+            UserFile.findById(req.params.id).exec((err, poliza) => {
+
+                // Pharse json data
+                var body = {};
+                Object.keys(req.body).map(key => {
+                    if (req.body[key] &amp;&amp; req.body[key] != 'null') {
+                        poliza[key] = req.body[key];
+                        if (key == 'extra') {
+                            poliza[key] = JSON.parse(req.body[key]);
+                        }
+
+                    }
+                })
+
+                // remove old file &amp;&amp; link new file
+                if (req.files &amp;&amp; req.files.file) {
+                    var ts = Math.round((new Date()).getTime() / 1000);
+                    var id_colaborador = user.id_colaborador || user._id;
+                    var filename = req.body._insurance + '_' + id_colaborador + '-' + ts + '.pdf';
+                    // Validate folder exists
+                    if (!fs.existsSync(config.poliza_dir + poliza._insurance)) {
+                        // Do something
+                        fs.mkdirSync(config.poliza_dir + poliza._insurance);
+                    }
+                    //fs.unlinkSync(config.poliza_dir + poliza.file);
+                    // Mv tmp fila to final path
+                    fs.renameSync(req.files.file.path, config.poliza_dir + req.body._insurance + '/' + filename);
+                    poliza.file = filename;
+                }
+
+                poliza.save((err, fileStored) => {
+                    if (err ||  !fileStored) {
+                        next({ status: 200, message: 'Ha ocurrido un error al guardar el archivo.' });
+                    } else {
+                        res.send(fileStored);
+                    }
+                })
+
+            })
+
+        }
+    });
+}
+
+exports.deleteUserFileByInsuranceId = function(req, res, next) {
+    /**
+     * Delete user card.
+     *
+     * id Long ID of the card user to delete
+     * returns Card
+     **/
+    UserFile.findOneAndRemove({ _id: req.params.id, _tenant: req.tenant }, (err, fileRemoved) => {
+        if (err || !fileRemoved) {
+            next({ status: 200, message: 'File doesnt exists.' });
+        } else {
+            if ( fs.existsSync( config.poliza_dir + fileRemoved._insurance + '/' + fileRemoved.file ) )
+                fs.unlinkSync(config.poliza_dir + fileRemoved._insurance + '/' + fileRemoved.file);
+            res.send(fileRemoved);
+        }
+    });
+
+}
+
+exports.bulkFiles = function(req, res, next) {
+    /**
+     * Update user files by bulk array.
+     *
+     * userfile UserFile
+     * returns UserFile
+     **/
+
+     // Get existent users
+     User.find({'_tenants._tenant': req.tenant}).exec((err, users) => {
+        if (err || !users || !users.length) {
+            next({ status: 200, message: 'Error retriving users.' });
+        } else {
+            // Sort users by id colaborador
+            var user_ids = {};
+            users.forEach( el => {
+                if ( el.email ) {
+                    user_ids[ el.email ] = el._id;
+                }
+            });
+
+            var inexistentes = []
+            
+            // Compose final information
+            req.body.files = req.body.files.filter(el => el.email ).map( el => {
+                var userfile = {
+                    _user: (user_ids[ el.email ]) ? user_ids[ el.email ] : null,
+                    _insurance: mongoose.Types.ObjectId(req.params.insurance),
+                    _tenant: req.tenant
+                };
+
+                if ( el._id ) {
+                    userfile._id = el._id;
+                }
+
+                if ( !userfile._user ) {
+                    inexistentes.push(el.email);
+                }
+
+                if ( el.file ) {
+                    userfile.file = el.file.toLowerCase();
+                }
+                delete el._id;
+                delete el.email;
+                delete el._insurance;
+                delete el.file;
+                userfile.extra = el;
+                return userfile;
+            });
+
+            // Filter only existent users
+            req.body.files = req.body.files.filter( el => el._user );
+
+            var bulkOps = req.body.files.map(el => (
+                {
+                    updateOne: {
+                        filter: { _id: mongoose.Types.ObjectId(el._id) },
+                        // Where field is the field you want to update
+                        update: {
+                            $set: removeObjectKey(el,"_id")
+                        },
+                        upsert: true
+                    }
+                }
+            ));
+            
+            // Bulk Update users insurances
+            var bulkUsers = req.body.files.map( el => ({
+                updateOne: {
+                    filter: {
+                        _id: el._user,
+                        '_tenants._tenant': req.tenant
+                        //_insurances: { $ne: req.params.insurance },
+                    },
+                    // Where field is the field you want to update
+                    update: {
+                        $addToSet: { '_tenants.$._insurances': mongoose.Types.ObjectId(req.params.insurance) }
+                    }
+                }
+            }) );
+
+            
+           UserFile.collection.bulkWrite(bulkOps)
+               .then(results => {
+
+                    var resultado = JSON.parse(JSON.stringify( results ) );
+                   resultado.empty = inexistentes;
+                   
+                   res.send(resultado);
+
+                   
+                   // Exec bulk update insurances per user
+                   User.collection.bulkWrite(bulkUsers)
+                    .then(results => {
+                    })
+                    .catch(err => res.send({ data: 'error', error: err }));
+
+               })
+               .catch(err => res.send({ data: 'error', error: err }));
+            
+        }
+    });
+
+}
+
+exports.uploadInsuranceFile = function( req, res, next ) {
+    
+    if (req.files &amp;&amp; req.files.file &amp;&amp; config.upload_types.indexOf(req.files.file.type) != -1 ) {
+        var filename = req.files.file.name;
+        var insurance_id = req.params.insurance;
+        // Validate folder exists
+        if (!fs.existsSync(config.poliza_dir + req.tenant)) {
+            // Do something
+            fs.mkdirSync(config.poliza_dir + req.tenant);
+        }
+        // Validate folder exists
+        if (!fs.existsSync(config.poliza_dir + req.tenant + '/' + insurance_id)) {
+            // Do something
+            fs.mkdirSync(config.poliza_dir + req.tenant + '/' + insurance_id);
+        }
+        fs.renameSync(req.files.file.path, config.poliza_dir + req.tenant + '/'  + insurance_id + '/' + filename.toLowerCase());
+        
+        req.files.file.name = req.files.file.name.toLowerCase();
+        req.files.file.originalFilename = req.files.file.originalFilename.toLowerCase();
+        res.send({
+            data: req.files.file
+        })
+        
+
+    } else {
+        next({ status: 200, message: 'File is required or format not supported.' });
+    }
+}
+
+exports.readInsuranceFiles = function( req, res, next ) {
+    var insurance_id = req.params.insurance;
+    var path = config.poliza_dir + req.tenant + '/' + insurance_id;
+    fs.readdir(path, ( err, data) => {
+        res.send({
+            data: (data) ? data : [],
+            token: jwt.createCustomToken({ip:req.ip})
+        })
+    }) 
+}
+
+exports.readEmptyInsuranceFiles = function( req, res, next ) {
+
+    var insurance_id = req.params.insurance;
+
+    UserFile.find({ _tenant: req.tenant, _insurance: insurance_id }).exec((err, userFiles) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving files.' });
+        } else {
+
+            var fileNames = userFiles.map( el => el.file );
+            var path = config.poliza_dir + req.tenant + '/' + insurance_id;
+
+            fs.readdir(path, ( err, filesList) => {
+                // Filter only not existent in files list
+                if ( err || !filesList ) {
+                    res.send({
+                        data: [],
+                        token: jwt.createCustomToken({ip:req.ip})
+                    });
+                    return;
+                }
+                var emptyFiles = filesList.filter( el => fileNames.indexOf(el) == -1 );
+                // data contains all file names
+                res.send({
+                    data: emptyFiles,
+                    token: jwt.createCustomToken({ip:req.ip})
+                });
+            })
+            
+            //res.send(userFiles);
+        }
+    });
+}
+
+exports.deleteInsuranceFile = function(req, res, next) {
+    /**
+     * Delete user card.
+     *
+     * id Long ID of the card user to delete
+     * returns Card
+     **/
+    fs.unlinkSync(config.poliza_dir + req.tenant + '/' + req.params.insurance + '/' + req.params.filename);
+    res.send({
+        data: req.params.filename
+    });
+
+}
+
+
+exports.bulkRemoveInsuranceRegisters = function(req, res, next) {
+    /**
+     * Delete all insurance registers.
+     *
+     * id Long ID of the card user to delete
+     * returns Card
+     **/
+    
+    var promises = [];
+    promises.push( User.update({_tenant: req.tenant},{$pull:{_insurances:req.params.insurance}},{multi:true}) );
+    promises.push( User.update({_tenant: req.tenant},{$pull:{_insurances:mongoose.Types.ObjectId(req.params.insurance)}},{multi:true}) );
+    promises.push( UserFile.remove({_tenant: req.tenant, _insurance: req.params.insurance },{multi:true}) );
+
+    Promise.all( promises ).then( result => {
+        res.send({
+            users_updated: (result &amp;&amp; (result[0] || result[1]) ) ? (result[0] || result[1]) : null,
+            files_removed: result &amp;&amp; result[2] ? result[2] : null
+        });
+    }).catch( err => {
+        res.send({
+            users_updated: null,
+            files_removed: null
+        });
+    });
+
+}
+
+exports.bulkRemoveInsuranceFiles = function(req, res, next) {
+    /**
+     * Delete all insurance registers.
+     *
+     * id Long ID of the card user to delete
+     * returns Card
+     **/
+
+    let path = config.poliza_dir + req.tenant + '/' + req.params.insurance;
+    
+    fs.readdir(path, ( err, data) => {
+        fs.rmdirSync( path , { recursive: true, force: true });
+        res.send({
+            data: data.length
+        })
+    })
+
+}
+
+
+
+
+function removeObjectKey( obj, key ) {
+    delete obj[key];
+    return obj;
+}
+
+
+
+/***************************************
+ *
+ *
+ *	Cards functions
+ *
+ *
+ ***************************************/
+exports.getUserCardsById = function(req, res, next) {
+    UserFile.find({ _user: req.params.user, type: 'sgmm' }).exec((err, cards) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving cards.' });
+        } else {
+            res.send(cards);
+        }
+    });
+}
+
+exports.addUserCard = function(req, res, next) {
+
+    User.findById(req.params.user).exec((err, user) => {
+        if (err || !user) {
+            next({ status: 200, message: 'Error saving card.' });
+        } else {
+            // remove not card files
+            Object.keys(req.files).filter(el => el != 'card').forEach(fl => {
+                fs.unlinkSync(req.files[fl].path);
+            });
+            if (req.files &amp;&amp; req.files.card) {
+                var ts = Math.round((new Date()).getTime() / 1000);
+                var certificado = user.certificado || user._id;
+                var filename = certificado + '_' + ts + '.pdf';
+                fs.renameSync(req.files.card.path, config.upload_card_dir + filename);
+                var userFile = new UserFile();
+                userFile._user = user._id;
+                userFile.type = 'sgmm';
+                userFile.file = filename;
+                userFile.save((err, fileStored) => {
+                    if (err ||  !fileStored) {
+                        next({ status: 200, message: 'Ha ocurrido un error al guardar el archivo.' });
+                    } else {
+                        res.send(fileStored);
+                    }
+                })
+            } else {
+                next({ status: 200, message: 'File is required.' });
+            }
+        }
+    });
+}
+
+exports.deleteUserCardById = function(req, res, next) {
+    /**
+     * Delete user card.
+     *
+     * id Long ID of the card user to delete
+     * returns Card
+     **/
+    UserFile.findOneAndRemove({ _id: req.params.id }, (err, cardRemoved) => {
+        if (err) {
+            next({ status: 200, message: 'Card doesnt exists.' });
+        } else {
+            if (cardRemoved) {
+                fs.unlinkSync(config.upload_card_dir + cardRemoved.file);
+                res.send(cardRemoved);
+            } else {
+                next({ status: 200, message: 'Error deleting card.' });
+            }
+        }
+    });
+
+}
+
+
+/***************************************
+ *
+ *
+ *	Polizas functions
+ *
+ *
+ ***************************************/
+exports.getUserPolizasById = function(req, res, next) {
+    UserFile.find({ _user: req.params.user, type: 'auto' }).exec((err, cards) => {
+        if (err) {
+            next({ status: 200, message: 'Error retriving polizas.' });
+        } else {
+            res.send(cards);
+        }
+    });
+}
+
+exports.addUserPoliza = function(req, res, next) {
+
+    User.findById(req.params.user).exec((err, user) => {
+        if (err || !user) {
+            next({ status: 200, message: 'Error saving poliza.' });
+        } else {
+            // remove not auto files
+            Object.keys(req.files).filter(el => el != 'file').forEach(fl => {
+                fs.unlinkSync(req.files[fl].path);
+            });
+            if (req.files &amp;&amp; req.files.file) {
+                req.body.extra = JSON.parse(req.body.extra)
+                var filename = req.body.extra.poliza + '-' + req.body.extra.endoso + '.pdf';
+                fs.renameSync(req.files.file.path, config.upload_poliza_dir + filename);
+                var userFile = new UserFile();
+                userFile._user = user._id;
+                userFile.type = 'auto';
+                userFile.file = filename;
+                userFile.extra = req.body.extra;
+                userFile.save((err, fileStored) => {
+                    if (err ||  !fileStored) {
+                        next({ status: 200, message: 'Ha ocurrido un error al guardar el archivo.' });
+                    } else {
+                        res.send(fileStored);
+                    }
+                })
+            } else {
+                next({ status: 200, message: 'File is required.' });
+            }
+        }
+    });
+}
+
+exports.updateUserPolizaById = function(req, res, next) {
+
+    User.findById(req.params.user).exec((err, user) => {
+        if (err || !user) {
+            next({ status: 200, message: 'Error saving poliza.' });
+        } else {
+            // remove not auto files
+            if (req.files) {
+                Object.keys(req.files).filter(el => el != 'file').forEach(fl => {
+                    fs.unlinkSync(req.files[fl].path);
+                });
+            }
+
+            // Find old poliza
+            UserFile.findById(req.params.id).exec((err, poliza) => {
+
+                // Pharse json data
+                if (req.body.extra) {
+                    req.body.extra = JSON.parse(req.body.extra);
+                }
+
+                // remove old file &amp;&amp; link new file
+                if (req.files &amp;&amp; req.files.file) {
+                    fs.unlinkSync(config.upload_poliza_dir + poliza.file);
+                    var filename = req.body.extra.poliza + '-' + req.body.extra.endoso + '.pdf';
+                    fs.renameSync(req.files.file.path, config.upload_poliza_dir + filename);
+                    poliza.file = filename;
+                } else {
+                    // rename old file in case of any change
+                    var filename = req.body.extra.poliza + '-' + req.body.extra.endoso + '.pdf';
+                    fs.renameSync(config.upload_poliza_dir + poliza.file, config.upload_poliza_dir + filename);
+                    poliza.file = filename;
+                }
+                poliza.extra = req.body.extra;
+                poliza.save((err, fileStored) => {
+                    if (err ||  !fileStored) {
+                        next({ status: 200, message: 'Ha ocurrido un error al guardar el archivo.' });
+                    } else {
+                        res.send(fileStored);
+                    }
+                })
+
+            })
+
+        }
+    });
+}
+
+exports.deleteUserPolizaById = function(req, res, next) {
+    /**
+     * Delete user poliza.
+     *
+     * id Long ID of the poliza user to delete
+     * returns Poliza
+     **/
+    UserFile.findOneAndRemove({ _id: req.params.id }, (err, polizaRemoved) => {
+        if (err) {
+            next({ status: 200, message: 'Poliza doesnt exists.' });
+        } else {
+            if (polizaRemoved) {
+                fs.unlinkSync(config.upload_poliza_dir + polizaRemoved.file);
+                res.send(polizaRemoved);
+            } else {
+                next({ status: 200, message: 'Error deleting poliza.' });
+            }
+        }
+    });
+
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

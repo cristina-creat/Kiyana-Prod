@@ -1,0 +1,27 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "KIO Link",
+        "description": "Global App for Creatsol",
+        "version": "1.0.0"
+    },
+    "host": "demo.future.com.mx",
+    "schemes": [
+        "https"
+    ],
+    "securityDefinitions": {
+        "api_key": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    },
+    "basePath": "/v1",
+    "produces": [
+        "application/json"
+    ],
+    "tags": [
+    ],
+    "paths": {},
+    "definitions": {}
+}

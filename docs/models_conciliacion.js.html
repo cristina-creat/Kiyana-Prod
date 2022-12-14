@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/conciliacion.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/conciliacion.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module models/catalog */
+
+/**
+ * @requires mongoose - Require mongoose library wich includes main database handling
+ */
+var mongoose = require('mongoose');
+
+/** @type {mongoose.Schema} */
+var Schema = mongoose.Schema;
+
+/**
+ * @class Conciliacion - Stores Main Conciliación Data
+ */
+var ConciliacionSchema = Schema({
+    type: { type: String },
+    month: { type: Number },
+    year: { type: Number },
+    agents: [{ type: String }],
+    count_files: { type: Number, default: 0 },
+    status: { type: String, required:true, default: 'pending' },
+    tries: { type: Number, required:true, default: 0 },
+    extradata: { type: Schema.Types.Mixed },
+    _sica: { type: Schema.ObjectId, ref: 'Sica' },
+    _user: { type: Schema.ObjectId, ref: 'User' },
+    _tenant: {type: Schema.ObjectId, ref: 'Tenant'},
+    created_at: { type: Date, required:true, default: Date.now },
+    proccessed_at: { type: Date }
+});
+
+/**
+ * @class SICA - Stores SICA informatio assocciated to a unique Conciliacion
+ */
+var SicaSchema = Schema({
+    data: [
+      {
+        CAgente: {type: Number}, 
+        CiaAbreviacion: {type: String}, 
+        Documento: {type: String}, 
+        EjecutNombre: {type: String}, 
+        Endoso: {type: String}, 
+        FDesde: {type: Date}, 
+        FStatus: {type: Date}, 
+        ImportePendXMon: {type: Number}, 
+        ImportePend_MXN: {type: Number}, 
+        Moneda: {type: String}, 
+        Nliquidacion: {type: String}, 
+        NombreCompleto: {type: String}, 
+        NombreGerencia: {type: String}, 
+        Periodo: {type: String}, 
+        PrimaNeta: {type: Number}, 
+        Serie: {type: String}, 
+        Status_TXT: {type: String}, 
+        TCPagoF: {type: String}, 
+        TCom: {type: String}, 
+      }
+    ],
+    _tenant: {type: Schema.ObjectId, ref: 'Tenant'},
+    _user: { type: Schema.ObjectId, ref: 'User' },
+    created_at: { type: Date, required:true, default: Date.now }
+});
+
+/**
+ * @class QueueQuery - Stores single request RPA item, assocciated to a unique Conciliacion
+ */
+var QueueQuerySchema = Schema({
+  type: { type: String, required: true },
+  identifier: { type: String },
+  status: { type: String, required:true, default: 'pending' },
+  activities: [{
+    act: { type: String },
+    status: { type: Boolean },
+    public: { type: Boolean, default: true },
+    extradata: { type: Schema.Types.Mixed }
+  }],
+  _conciliacion: { type: Schema.ObjectId, ref: 'Conciliacion' },
+  _tenant: {type: Schema.ObjectId, ref: 'Tenant'},
+  started_at: { type: Date },
+  finished_at: { type: Date },
+  created_at: { type: Date, required:true, default: Date.now }
+});
+
+/**
+ * @class ConciliacionResult - Stores results of matching data between SICAS &amp; QueueQuery data, assocciated to a unique Conciliacion
+ */
+var ConciliacionResultSchema = Schema({
+  data: [
+    {
+      poliza: { type: String },
+      sica: { type: Schema.Types.Mixed },
+      insurance: { type: Schema.Types.Mixed },
+      status: { type: String },
+    }
+  ],
+  filename:  { type: String },
+  _conciliacion: { type: Schema.ObjectId, ref: 'Conciliacion' },
+  _tenant: {type: Schema.ObjectId, ref: 'Tenant'},
+  created_at: { type: Date, required:true, default: Date.now }
+});
+
+/** Exports already created Schemas as mongoose models */
+module.exports = {
+    Conciliacion: mongoose.model('Conciliacion', ConciliacionSchema),
+    Sica: mongoose.model('Sica', SicaSchema),
+    QueueQuery: mongoose.model('QueueQuery', QueueQuerySchema),
+    ConciliacionResult: mongoose.model('ConciliacionResult', ConciliacionResultSchema)
+  }</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

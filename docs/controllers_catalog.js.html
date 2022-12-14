@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/catalog.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/catalog.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module controllers/catalog */
+
+/**
+ * @requires config - Require main configuration file
+ * @requires fs - Require fs library
+ */
+var config = require('config');
+var fs = require('fs');
+
+/**
+ * @description Get a some catalog collection items
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(array)} data - res.send conciliaciones list
+ * 
+ * @returns {void}
+ */
+exports.getCatalog = function(req, res, next) {
+
+    // Obtain main model dynamically
+    var Catalog = require("../models/catalog")[req.params.catalog];
+
+    // Define empty pipeline
+    var pipeline = [];
+
+    // Filter options
+    var filter = {};
+
+    if (req.query &amp;&amp; req.query.query) {
+        let buff = new Buffer(req.query.query, 'base64');
+        let query = buff.toString('ascii');
+        filter = JSON.parse(query);
+    }
+
+    if (Catalog.schema.paths.active &amp;&amp; !req.query.all) {
+        filter.active = true;
+    }
+
+    // Filter tenant
+    filter._tenant = req.tenant;
+
+    // Add to pipeline if not empty
+    if (Object.keys(filter).length) {
+        pipeline.push({
+            $match: filter
+        });
+    }
+
+    // Sort options
+    var sort = {};
+    if (Catalog.schema.paths.sort) {
+        sort.sort = 1;
+    }
+    if (Catalog.schema.paths.name) {
+        sort.name = 1;
+    }
+
+    if (Object.keys(sort).length) {
+        pipeline.push({
+            $sort: sort
+        });
+    }
+
+    // Limit query
+    if (req.query &amp;&amp; req.query.limit) {
+        pipeline.push({
+            $limit: parseInt(req.query.limit)
+        });
+    }
+
+
+    Catalog.aggregate(pipeline)
+        .exec()
+        .then(data => {
+            res.send({ data: data });
+
+        }).catch(err => {
+            console.log(err);
+            next({ status: 500, message: 'Error retriving catalog.' });
+        });
+
+}
+
+/**
+ * @description Create new catalog item fromm body data
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * 
+ * @typedef {Object} requestBody
+ * @property {object} req.body.data - Catalog item data to create
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams,requestBody>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send new created catalog item
+ * 
+ * @returns {void}
+ */
+exports.addCatalog = function(req, res, next) {
+    var Catalog = require("../models/catalog")[req.params.catalog];
+    var item = new Catalog();
+
+    for (var key in req.body) {
+        item[key] = req.body[key];
+    }
+
+    // Add tenant
+    item._tenant = req.tenant;
+
+
+    item.save((err, data) => {
+        if (err || !data) {
+            next({ status: 200, message: 'Error saving item.', error: common._handleError(err) });
+        } else {
+            res.send({ data: data });
+        }
+    })
+
+}
+
+/**
+ * @description Get catalog item data from catalog name and item ID
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * @property {string} req.params.id - Catalog item ID expected to retrive
+ * 
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send expected catalog item
+ * 
+ * @returns {void}
+ */
+exports.getCatalogById = function(req, res, next) {
+    /**
+     * Get catalog item.
+     *
+     * returns Item
+     **/
+
+    var Catalog = require("../models/catalog")[req.params.catalog];
+
+    Catalog.findOne({_tenant: req.tenant, _id:req.params.id}).exec(function(err, data) {
+        if (err || !data) {
+            next({ status: 200, message: 'Catalog item not exists.', error: common._handleError(err) });
+        } else {
+            res.send({ data: data });
+        }
+    });
+}
+
+/**
+ * @description Update catalog item from catalog name, item ID and body data
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * @property {string} req.params.id - Catalog item ID expected to retrive
+ * 
+ * @typedef {Object} requestBody
+ * @property {object} req.body.data - Catalog item data to update
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams,requestBody>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send new updated catalog item
+ * 
+ * @returns {void}
+ */
+exports.updateCatalogById = function(req, res, next) {
+    /**
+     * Update catalog item.
+     *
+     * returns Item
+     **/
+
+    var Catalog = require("../models/catalog")[req.params.catalog];
+
+    var item = {};
+
+    for (var key in req.body) {
+        if (key !== '_id')
+            item[key] = req.body[key];
+    }
+
+    if ( item['_tenant'] ) {
+        delete item['_tenant'];
+    }
+
+    Catalog.findOneAndUpdate({_tenant: req.tenant, _id: req.params.id}, item, { new: true }).exec(function(err, data) {
+        if (err || !data) {
+            next({ status: 200, message: 'Error updating item.', error: common._handleError(err) });
+        } else {
+            res.send({ data: data });
+        }
+    });
+
+}
+
+/**
+ * @description Delete catalog item from catalog name and item ID
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * 
+ * @typedef {Object} requestBody
+ * @property {object} req.body.data - Catalog name expected to retrive
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams,requestBody>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send deleted catalog item
+ * 
+ * @returns {void}
+ */
+exports.deleteCatalogById = function(req, res, next) {
+    /**
+     * Return a item deleted status
+     *
+     * returns Deleted status
+     **/
+
+    var Catalog = require("../models/catalog")[req.params.catalog];
+
+    Catalog.findOneAndRemove({_tenant: req.tenant, _id: req.params.id}).exec(function(err, data) {
+        if (err || !data) {
+            next({ status: 200, message: 'Error deleting item.', error: common._handleError(err) });
+        } else {
+            res.send({ data: data });
+        }
+    })
+
+}
+
+/**
+ * @description Create new catalog file item from file data
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @typedef {Object} requestParams
+ * @property {string} req.params.catalog - Catalog name expected to retrive
+ * 
+ * @typedef {Object} requestFile
+ * @property {object} req.file.file - Catalog item file data to create
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams,requestFile>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send new created catalog item URL
+ * 
+ * @returns {void}
+ */
+exports.addFileCatalog = function(req, res, next) {
+    var filepath = req.files.file.path;
+    var upload_tmp = config.upload_dir_tmp.replace('./', '');
+    var filename = filepath.replace(upload_tmp, '');
+
+    // Validate folder exists
+    if (!fs.existsSync(config.upload_dir + config.upload_catalog_dir + req.tenant)) {
+        // Do something
+        fs.mkdirSync(config.upload_dir + config.upload_catalog_dir + req.tenant);
+    }
+
+    filepath = config.upload_dir + config.upload_catalog_dir + req.tenant + '/' + filename;
+    fs.renameSync(req.files.file.path, filepath);
+    res.send({
+        url: config.api_url + 'files/catalogs/' + req.tenant + '/' + filename
+    });
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

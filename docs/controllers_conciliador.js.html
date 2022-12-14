@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/conciliador.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/conciliador.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module controllers/conciliacion */
+
+/**
+ * @requires mongoose - Require mongoose library
+ * @requires moment - Require moment library
+ * @requires fs - Require fs library
+ * @requires path - Require path library
+ * @requires _ - Require lodash library
+ * 
+ * @requires common - Require common service wich includes current using functions
+ * @requires chubb - Require chubb service
+ * @requires hdi - Require hdi service
+ * @requires qualitas - Require qualitas service
+ * 
+ * @requires catalogModel {CredencialQualitas, CredencialHDI, CredencialChubb} - Require User model to connect with database
+ * @requires conciliacionModel {Conciliacion, Sica, QueueQuery, ConciliacionResult} - Require User model to connect with database
+ * 
+ */
+const mongoose = require('mongoose');
+const moment = require('moment');
+const fs = require('fs');
+const path = require('path');
+const _ = require('lodash');
+
+const common = require('../services/common');
+const chubb = require('../services/insurances/chubb');
+const hdi = require('../services/insurances/hdi');
+const qualitas = require('../services/insurances/qualitas');
+
+const { CredencialQualitas, CredencialHDI, CredencialChubb } = require('../models/catalog')
+const { Conciliacion, Sica, QueueQuery, ConciliacionResult } = require('../models/conciliacion');
+
+/** Setup moment language */
+moment.locale('es')
+
+
+
+
+/**
+ * @description Get a list of conciliaciones
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @param {Express.Request&lt;{},requestData>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(array)} data - res.send conciliaciones list
+ * 
+ * @returns {void}
+ */
+exports.getConciliaciones = function (req, res, next) {
+    
+    let filter = {};
+    // Filter items if is not admin user
+    if (!common.permitAny(['admin-conciliaciones-admin'], req)) {
+        filter = {
+            _tenant: req.tenant,
+            _user: req.user._id
+        }
+    } else {
+        filter = {
+            _tenant: req.tenant
+        }
+    }
+
+    Conciliacion.find(filter).populate([{ path: '_user', select: 'email firstname lastname' }]).sort({ created_at: -1 }).exec().then(
+        data => {
+            res.send({ data: data })
+        }
+    ).catch(
+        err => {
+            next({ status: 500, message: 'Error loading data', error: err });
+        }
+    )
+}
+
+/**
+ * @description Create new conciliacion request
+ *
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ * 
+ * @param {Express.Request&lt;{},requestData>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send new created conciliacion
+ * 
+ * @returns {void}
+ */
+exports.addConciliacion = async function (req, res, next) {
+    
+    /**
+     * Creates a new conciliacion.
+     *
+     * returns Conciliacion
+     **/
+
+
+    // Receive data from post body
+    let { period, insurance } = req.body;
+
+    period = {
+        month: moment(period).format('MMMM'),
+        month_number: moment(period).format('MM'),
+        year: moment(period).year()
+    }
+
+    switch (insurance) {
+        case 'Qualitas':
+
+            /*
+            //Temporary disable to test, now user not necesarry should have a qualitas insurance account assigned
+
+            // Validate user has at least one credential
+            if ( !req.user.insurances || !req.user.insurances.qualitas || !req.user.insurances.qualitas.length ) {
+                next({ status: 403, message: 'Agent ID not available for current request' });
+                return;
+            }
+            */
+
+            // Get credentials (Find agentes in SICA file, then get credentials in database)
+            let cveAgentes = _.uniq(req.body.dataFile.map(el => el.CAgente));
+            let credentials = await CredencialQualitas.find({ _tenant: req.tenant, identifier: { $in: cveAgentes } });
+
+
+            // Save Sica data
+            let sicaData = new Sica({ data: req.body.dataFile, _user: req.user._id, _tenant: req.tenant });
+            try {
+                await sicaData.save();
+            } catch (err) {
+                next({ status: 500, message: 'Data prototipe not structured', error: err });
+                return;
+            }
+
+
+            // Create new object
+            let new_conciliacion = new Conciliacion();
+            new_conciliacion._user = req.user._id;
+            new_conciliacion._tenant = req.tenant;
+            new_conciliacion.type = insurance;
+            new_conciliacion.month = period.month_number;
+            new_conciliacion.year = period.year;
+            new_conciliacion.agents = credentials.map(i => i.identifier);
+            new_conciliacion._sica = sicaData._id;
+
+
+
+            let pipeQueryList = credentials.map(el => ({
+                type: 'Qualitas',
+                identifier: el.identifier,
+                _conciliacion: new_conciliacion._id,
+                _tenant: req.tenant
+            }));
+
+            // Count files means the number of querys should be made to the insurance
+            new_conciliacion.count_files = pipeQueryList.length;
+            new_conciliacion.save();
+
+            // Save queue to insurance connections
+            try {
+                await QueueQuery.insertMany(pipeQueryList);
+            } catch (err) {
+                new_conciliacion.status = 'failed';
+                new_conciliacion.save();
+                next({ status: 500, message: 'Queue for this insurance not stored', error: err });
+                return;
+            }
+
+            res.send(new_conciliacion);
+
+            break;
+        case 'HDI':
+
+
+
+            // Get credentials (Find agentes in SICA file, then get credentials in database)
+            let cveAgentesHDI = _.uniq(req.body.dataFile.map(el => el.CAgente));
+            let credentialsHDI = await CredencialHDI.find({ _tenant: req.tenant, identifier: { $in: cveAgentesHDI } });
+
+
+            // Save Sica data
+            let sicaDataHDI = new Sica({ data: req.body.dataFile, _user: req.user._id, _tenant: req.tenant });
+            try {
+                await sicaDataHDI.save();
+            } catch (err) {
+                next({ status: 500, message: 'Data prototipe not structured', error: err });
+                return;
+            }
+
+
+            // Create new object
+            let new_conciliacionHDI = new Conciliacion();
+            new_conciliacionHDI._user = req.user._id;
+            new_conciliacionHDI._tenant = req.tenant;
+            new_conciliacionHDI.type = insurance;
+            new_conciliacionHDI.month = period.month_number;
+            new_conciliacionHDI.year = period.year;
+            new_conciliacionHDI.agents = credentialsHDI.map(i => i.identifier);
+            new_conciliacionHDI._sica = sicaDataHDI._id;
+
+
+
+            let pipeQueryListHDI = credentialsHDI.map(el => ({
+                type: 'HDI',
+                identifier: el.identifier,
+                _conciliacion: new_conciliacionHDI._id,
+                _tenant: req.tenant
+            }));
+
+            // Count files means the number of querys should be made to the insurance
+            new_conciliacionHDI.count_files = pipeQueryListHDI.length;
+            new_conciliacionHDI.save();
+
+            // Save queue to insurance connections
+            try {
+                await QueueQuery.insertMany(pipeQueryListHDI);
+            } catch (err) {
+                new_conciliacionHDI.status = 'failed';
+                new_conciliacionHDI.save();
+                next({ status: 500, message: 'Queue for this insurance not stored', error: err });
+                return;
+            }
+
+            res.send(new_conciliacionHDI);
+
+            break;
+        case 'CHUBB':
+            // Get credentials (Find agentes in SICA file, then get credentials in database)
+            let cveAgentesChubb = _.uniq(req.body.dataFile.map(el => el.CAgente));
+
+            let credentialsChubb = await CredencialChubb.find({ _tenant: req.tenant, identifier: { $in: cveAgentesChubb } });
+
+            // Save Sica data
+            let sicaDataChubb = new Sica({ data: req.body.dataFile, _user: req.user._id, _tenant: req.tenant });
+            try {
+                await sicaDataChubb.save();
+            } catch (err) {
+                next({ status: 500, message: 'Data prototipe not structured', error: err });
+                return;
+            }
+
+
+            // Create new object
+            let new_conciliacionChubb = new Conciliacion();
+            new_conciliacionChubb._user = req.user._id;
+            new_conciliacionChubb._tenant = req.tenant;
+            new_conciliacionChubb.type = insurance;
+            new_conciliacionChubb.month = period.month_number;
+            new_conciliacionChubb.year = period.year;
+            new_conciliacionChubb.agents = credentialsChubb.map(i => i.identifier);
+            new_conciliacionChubb._sica = sicaDataChubb._id;
+
+
+
+            let pipeQueryListChubb = credentialsChubb.map(el => ({
+                type: 'Chubb',
+                identifier: el.identifier,
+                _conciliacion: new_conciliacionChubb._id,
+                _tenant: req.tenant
+            }));
+
+            // Count files means the number of querys should be made to the insurance
+            new_conciliacionChubb.count_files = pipeQueryListChubb.length;
+            new_conciliacionChubb.save();
+
+            // Save queue to insurance connections
+            try {
+                await QueueQuery.insertMany(pipeQueryListChubb);
+            } catch (err) {
+                new_conciliacionChubb.status = 'failed';
+                new_conciliacionChubb.save();
+                next({ status: 500, message: 'Queue for this insurance not stored', error: err });
+                return;
+            }
+
+            res.send(new_conciliacionChubb);
+
+            break;
+
+
+        default:
+            next({ status: 500, message: 'Insurance module not available' });
+    }
+
+}
+
+/**
+ * @description Proccess the RPA excecutions queue, this may be a public method if it's excecuted from a crontab
+ *
+ * @typedef {Object} requestData
+ * 
+ * @param {Express.Request&lt;{},requestData>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response with all queue excecutions result
+ * 
+ * @returns {void}
+ */
+exports.processQueue = async function (req, res, next) {
+    /*
+    let result = await processQualitasQueue();
+    */
+    let result = [];
+    result.push(qualitas.processQueue());
+    result.push(hdi.processQueue());
+    result.push(chubb.proccessQueue());
+    Promise.all(result).then(
+        resultData => {
+            res.send(resultData)
+        }
+    ).catch(err => {
+        res.send(err);
+    })
+}
+
+/**
+ * @description Search for a ready to conciliate RPAs and concilite it, this may be a public method if it's excecuted from a crontab
+ *
+ * @typedef {Object} requestData
+ * 
+ * @param {Express.Request&lt;{},requestData>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response with all conciliaciones results
+ * 
+ * @returns {void}
+ */
+exports.doConciliacion = async function (req, res, next) {
+
+    // Set old conciliaciones as files
+    await Conciliacion.updateMany({status: "pending", created_at: { $lte: moment().subtract(1, 'day').toDate() }},{$set:{status:'proccessed'}},{multi: true});
+    // Set 0 queue as completed
+    await Conciliacion.updateMany({status: "pending", count_files:0 },{$set:{status:'proccessed'}},{multi: true});
+
+    let pipeline = [];
+    // Different pipeline, if the request is from cron or direct with ID
+    if (req.params.id) {
+        pipeline = [
+            { $match: { _id: new mongoose.Types.ObjectId(req.params.id) } },
+            { $limit: 5 },
+            {
+                $lookup: {
+                    "from": "queuequeries",
+                    "localField": "_id",
+                    "foreignField": "_conciliacion",
+                    "as": "_queue"
+                }
+            },
+        ]
+    } else {
+        pipeline = [
+            { $match: { status: "pending", created_at: { $gte: moment().subtract(1, 'day').toDate() } } },
+            //{ $match: { status: "pending", created_at: { $gte: moment().subtract(1, 'day').toDate(), $lte: moment().subtract(5, 'minutes').toDate() } } },
+            //{ $match: {} },
+            { $limit: 5 },
+            {
+                $lookup: {
+                    "from": "queuequeries",
+                    "localField": "_id",
+                    "foreignField": "_conciliacion",
+                    "as": "_queue"
+                }
+            },
+        ];
+    }
+
+    let conciliaciones = await Conciliacion.aggregate(pipeline);
+
+
+    // Remove unnecesary data
+    conciliaciones = conciliaciones.map(c => {
+        c._queue = c._queue.map(q => ({
+            status: q.status,
+            identifier: q.identifier
+        }));
+        c._queue = c._queue.filter(q => q.status == 'pending');
+        return c;
+    })
+
+    // Filter elements with insurance &amp;&amp; with queue length 0
+    let conIds = conciliaciones.filter(el => el.type &amp;&amp; !el._queue.length).map(el => el._id);
+
+    
+
+    // Get conciliaciones by ID in order to have an editable item
+    conciliaciones = await Conciliacion.find({ _id: { $in: conIds } });
+    
+
+
+    let responses = []
+    // Proccess items
+    for (const cn of conciliaciones) {
+        switch (cn.type) {
+            
+            case 'Qualitas':
+                let qualitasResult = await qualitas.doConciliacion( cn );
+                responses.push({
+                    cn: cn,
+                    s: qualitasResult
+                });
+                break;
+            case 'HDI':
+                let hdiResult = await hdi.doConciliacion( cn );
+                responses.push({
+                    cn: cn,
+                    s: hdiResult
+                });break;
+            case 'CHUBB':
+                    let chubbResult = await chubb.doConciliacion( cn );
+                    responses.push({
+                        cn: cn,
+                        s: chubbResult
+                    });
+                    break;
+            default:
+                console.log('Conciliation type not available', cn);
+        }
+    }
+
+    console.log('end')
+    res.send({
+        data: responses,
+        //data: 'ok',
+    })
+}
+
+/**
+ * @description Reinicia un elemento previamente procesado (restaura la conciliación y la solicitud a 'pending')
+ * 
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ *
+ * @typedef {Object} requestParams
+ * @property {string} req.params.id - Queue ID
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response updated conciliacion
+ * 
+ * @returns {void}
+ */
+exports.resetQueueById = async function (req, res, next) {
+
+    // Reset conciliacion status
+    let conciliacion = await Conciliacion.updateOne({_id: req.params.id, _tenant: req.tenant},{$set:{status:'pending', created_at: moment().toDate()}}, {new: true});
+    // Reset conciliacion status
+    await QueueQuery.updateOne({_id: req.params.queue_id, _conciliacion: req.params.id, _tenant: req.tenant},{$set:{status:'pending', created_at: moment().toDate(), activities: []}});
+
+    // Reset conciliacion status
+    await ConciliacionResult.remove({_conciliacion: req.params.id, _tenant: req.tenant},{multi: true});
+    
+
+    res.send({
+        data: conciliacion
+    })
+}
+
+/**
+ * @description Elimina una conciliación, así como sus dependientes por un  ID recibido
+ * 
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ *
+ * @typedef {Object} requestParams
+ * @property {string} req.params.id - Conciliacion ID
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response updated conciliacion
+ * 
+ * @returns {void}
+ */
+exports.deleteConciliacionById = async function (req, res, next) {
+
+    // Remove conciliacion results
+    await ConciliacionResult.remove({_conciliacion: req.params.id, _tenant: req.tenant},{multi: true});
+    
+    // Remove conciliacion queues
+    await QueueQuery.remove({_conciliacion: req.params.id, _tenant: req.tenant},{multi: true});
+    
+    // Remove conciliacion
+    await Conciliacion.remove({_id: req.params.id, _tenant: req.tenant},{multi: true});
+
+    // Remove files
+    fs.rmSync('./downloads/' + req.params.id, { recursive: true, force: true });
+    
+
+    res.send({
+        data: 'ok',
+    })
+}
+
+/**
+ * @description Return the last result of a conciliacion
+ * 
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ *
+ * @typedef {Object} requestParams
+ * @property {string} req.params.id - Conciliacion ID
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response with a conciliacion result
+ * 
+ * @returns {void}
+ */
+exports.getConciliacionResults = async function (req, res, next) {
+
+    try {
+        let conciliacion = await Conciliacion.findOne({ _id: req.params.id, _tenant: req.tenant }).populate([{ path: '_user', select: 'email firstname lastname' }]);
+
+        if (!common.permitAny(['admin-conciliaciones-admin'], req)) {
+            if (conciliacion &amp;&amp; (!conciliacion._user || String(conciliacion._user._id) != String(req.user._id)) ) {
+                conciliacion = null;
+            }
+        }
+
+        if ( !conciliacion ) {
+            next({ status: 404, message: 'Data not found', error: 'Conciliación not found' });
+            return;
+        }
+
+        res.send({
+            data: {
+                conciliacion: conciliacion,
+                queue: await QueueQuery.find({_conciliacion: req.params.id}),
+                result: await ConciliacionResult.findOne({ _conciliacion: req.params.id, _tenant: req.tenant }).sort({ created_at: -1 })
+            }
+        })
+    } catch( err ) {
+        next({ status: 500, message: 'Error retriving data', error: err });
+        return;
+    }
+
+    
+}
+
+/**
+ * @description Allow the conciliacion result in a XLSX file
+ * 
+ * @typedef {Object} requestData
+ * @property {number} req.user - includes user data in current request
+ * @property {string} req.tenant - includes user tenant in current request
+ *
+ * @typedef {Object} requestParams
+ * @property {string} req.params.id - Conciliacion ID
+ * @property {string} req.params.result_id - Resultado ID
+ * @property {string} req.params.filename - File Name
+ * 
+ * @param {Express.Request&lt;{},requestData,requestParams>} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ * 
+ * @param {Function(object)} data - res.send response with a conciliacion result
+ * 
+ * @returns {void}
+ */
+exports.getConciliacionFile = function (req, res, next) {
+
+    // Validate conciliacion exists
+    ConciliacionResult.findOne({ _conciliacion: req.params.id, _id: req.params.result_id, filename: req.params.filename }).exec().then(
+        conciliacionData => {
+            let fileName = './downloads/' + req.params.id + '/' + req.params.filename;
+            console.log('unavailable file ' + fileName )
+            if (fs.existsSync(fileName)) {
+                res.setHeader('Content-disposition', 'attachment; filename=test.xlsx');
+                res.setHeader('Content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8');
+                res.status(200).sendFile(path.resolve(fileName));
+            } else {
+                res.status(404).send({
+                    error: 'File not available 1'
+                })
+            }
+        }
+    ).catch(err => {
+        console.log( err )
+        res.status(404).send({
+            error: 'File not available 2'
+        })
+    });
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

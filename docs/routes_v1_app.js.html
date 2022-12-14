@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: routes/v1/app.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: routes/v1/app.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+/**
+ * Express router main module, define subroutes and handle mongodb connection
+ * @requires express
+ * @requires mongoose
+ * @requires config
+ */
+const express = require('express');
+const mongoose = require('mongoose');
+const config = require('config');
+
+/** Initializa main routing express module */
+const router = express.Router();
+
+/** Initializa main routing express module */
+mongoose.Promise = global.Promise;
+
+/** Validate mongo configuration exists */
+if (!config || !config.mongo || !config.mongo.database) {
+    console.log('Mongo configuration not fount');
+}
+
+/** Define itial DB connection string */
+var string_connection = config.mongo.protocol || 'mongodb://';
+
+/** Add authentication data to DB connection string */
+if (config.mongo.user &amp;&amp; config.mongo.password) {
+    string_connection += config.mongo.user + ':' + config.mongo.password + '@';
+}
+
+/** Add configuration for multiple hosts to DB connection string if neccessary */
+if (config.mongo.hosts &amp;&amp; Array.isArray(config.mongo.hosts) &amp;&amp; config.mongo.hosts.length) {
+    // Multiple host
+    string_connection += config.mongo.hosts.map(el => el.url + ( ( el.port )  ? ( ':' + el.port ) : '' ) ).join(',');
+} else {
+    // Single host
+    string_connection += config.mongo.url + ( ( config.mongo.port ) ? ( ':' + config.mongo.port ) : '' )
+}
+
+/** Add database name to connection string */
+string_connection += '/' + config.mongo.database;
+
+/** Add database extra params to connection string */
+if (config.mongo.params) {
+    string_connection += '?' + Object.keys(config.mongo.params).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(config.mongo.params[k])}`).join('&amp;');
+}
+
+/** Define database connection options */
+var opts = {};
+if (config.mongo.options) {
+    opts = config.mongo.options;
+}
+
+/**
+ * 
+ * Initialize MongoDb connection
+ * 
+ * @param {String} string_connection - MongoDb formar string connection
+ * @param {Object} opts - Object with extra options connection
+ * @param {AnonFunction} callback - Callback when DB connection completed.
+ */
+mongoose.connect(string_connection, opts, (err, res) => {
+    if (err) {
+        throw err;
+    } else {
+        console.log('connected');
+    }
+});
+
+
+/** Resolve base route */
+router.get('/', function(req, res, next) {
+    res.status(200).send({ message: 'welcome to KIYANA API' });
+});
+
+
+/**
+ * Express router main module, define subroutes and handle mongodb connection
+ * @requires auth
+ * @requires catalog
+ * @requires files
+ * @requires stats
+ * @requires tenant
+ * @requires tools
+ * @requires users
+ * @requires conciliador
+ */
+require('./auth')(router);
+require('./catalog')(router);
+require('./files')(router);
+require('./stats')(router);
+require('./tenant')(router);
+require('./tools')(router);
+require('./users')(router);
+require('./conciliador')(router);
+
+/** Exports full configured routed */
+module.exports = router;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

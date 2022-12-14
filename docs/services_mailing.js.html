@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: services/mailing.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: services/mailing.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+var config = require('config');
+var mailgun = require('mailgun-js')({apiKey: config.mailgun.api_key, domain: config.mailgun.domain});
+var fs = require('fs');
+var path = require('path');
+
+/**
+* 
+* 
+*  Send mail via mailgun
+*  params options = { recipients: {email:{var1:value1,var2:value2,...}}, subject: 'string', template: 'mailgun template slug' }
+* 
+*/
+
+exports.send = function(options, callback) {
+
+  if (!options) {
+    return;
+  }
+
+  var data = {
+    from: config.mailgun.from,
+    to: Object.keys( options.recipients ),
+    subject: (options.subject) ? options.subject : config.mailgun.default_subject ,
+    template: options.template,
+    'recipient-variables': JSON.stringify(options.recipients)
+  };
+
+  console.log( data );
+
+  if ( options.attachment ) {
+    data.attachment = options.attachment
+  }
+
+
+
+  /*
+  if ( options.recipiens ) {
+    Object.keys( options.recipiens ).forEach( key => {
+      data[key] = body[key];
+    })
+  }
+  */
+
+  mailgun.messages().send(data, function (error, body) {
+      console.log(error);
+      console.log(body);
+  });
+
+}
+
+/*
+exports.example = function(req,res){
+  var options = {
+    subject: 'Welcome to App!',
+    recipients: {
+      'lorddrak@gmail.com':{
+        'data1': 'something',
+        'name': 'Emmanuel Reyes T.'
+      }
+    },
+    template: 'newUser'
+  }
+  mailing.send(options,function(response){
+    res.send(response);
+  });
+}
+*/
+
+/*
+exports.send = function(options,callback){
+
+    //callback({status: 'success', data: 'demo'});
+
+    
+    // Validate if recipients are received
+    if(!options.recipients || Object.keys(options.recipients).length==0){
+      if(callback)
+        callback({status: 'error', message: 'Not recipient received'});
+      return;
+    }
+    // Add email var to a vars lists
+    for(var key in options.recipients) {
+      options.recipients[key].email = key;
+    }
+
+    if(!options.template)
+      options.template = config.mailgun.default_template;
+    
+    var template_file = path.join(__dirname, './'+config.mailgun.templates_dir+'/'+options.template+'.html');
+    // readfile if exists
+    if(fs.existsSync(template_file)){
+      
+      // Get template file content
+      fs.readFile(template_file, 'utf8', function (err, htmlBody) {
+        if(err){
+          if(callback)
+            callback({status: 'error', message: err});
+        } else {
+
+          while (htmlBody.indexOf('%website_url%') !== -1)
+          {
+              htmlBody = htmlBody.replace('%website_url%', config.website_url);
+          }
+
+          // Replace custom vars
+          if(options.vars){
+            for(var param in options.vars){
+              while (htmlBody.indexOf('%vars.'+param+'%') !== -1) {
+                htmlBody = htmlBody.replace('%vars.'+param+'%', options.vars[param]);
+              }   
+            }
+          }
+          
+          // Construct mail vars
+          var data = {
+            from: config.mailgun.from,
+            to: Object.keys(options.recipients),
+            subject: (typeof(options.subject)=='string') ? options.subject : config.mailgun.default_subject,
+            html: htmlBody,
+            "recipient-variables" : options.recipients
+          };
+          // Send mail
+          mailgun.messages().send(data, function (error, body) {
+            if(error){
+              if(callback)
+                callback({status: 'error', message: err});
+            } else {
+              if(callback)
+                callback({status: 'success', data: body});
+            }
+          });
+          
+        }
+      });
+    } else {
+      callback({status: 'error', message: 'Template not exists: '+template_file});
+      return;
+    }
+    
+
+}
+*/
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

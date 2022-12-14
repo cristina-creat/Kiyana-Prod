@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/tools.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/tools.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+var config = require('config');
+var getSlug = require('speakingurl');
+var User = require("../models/user");
+
+/***************************************
+ *
+ *
+ *	Testing function
+ *
+ *
+ ***************************************/
+exports.test = async function(req, res, next) {
+   res.send()
+    return;
+    /*
+    var soap = require('soap');
+    var moment = require('moment');
+    var url = 'http://200.78.173.245:82/IsTimeWS.asmx?WSDL';
+    
+    soap.createClient(url, function(err, client) {
+        
+        var today = moment().add(1,'week');
+        var args = {
+            clave: 'CIS0000671',
+            horario: 'A3',
+            semana: today.format('w'),
+            anio: today.format('YYYY')
+        };
+        res.send('ok');
+        
+        client.HorarioEmpleado(args, function(error, result) {
+            res.send({
+                result: result,
+                error: error,
+                err: err
+            })
+        });
+        
+        
+    });
+    */
+
+    /*
+    const fs = require('fs');
+    if (fs.existsSync(config.firebase.default.apn.token.key)) {
+        //file exists
+        console.log( 'Existe archivo ' + config.firebase.default.apn.token.key );
+    } else {
+        console.log( 'No existe archivo ' + config.firebase.default.apn.token.key );
+  
+    }
+    res.send('ok');
+    return;
+    
+    
+	var PushNotifications = new require('node-pushnotifications');
+
+	const settings = {
+		gcm: {
+			id: config.firebase.default.gcm.id,
+			phonegap: false
+		},
+		apn: {
+			token: {
+				key: config.firebase.default.apn.token.key, // optionally: fs.readFileSync('./certs/key.p8') 
+				keyId: config.firebase.default.apn.token.keyId,
+				teamId: config.firebase.default.apn.token.teamId
+			},
+			production: false
+		},
+		isAlwaysUseFCM: false
+	};
+	const push = new PushNotifications(settings);
+
+	
+	// Multiple destinations 
+    var registrationIds = ['cJeC2tjtiXI:APA91bEtI3MatU__6HyVMOoMGtXMSGBBO0Ymy-NAIQXw_Li0HgOC2II4nlmSF7xVX7CtAmaO9pqPaS0ZuRfjnGeOk3JmxcJAtieWK1WcZEQ4eCZxni57-g7frAUq66qDBGTgK7Pw8Qu9']; 
+
+    
+	let data = {
+        title: 'Hola',
+		body: 'Mundo', // REQUIRED 
+		icon: "ic_stat_icon_notification"
+        //category: 'kasax'
+    }
+    //console.log(registrationIds);
+
+    
+    
+    push.send(registrationIds, data).then(
+		data => {
+			res.send( data );
+		}
+	).catch(
+		err => {
+			res.send( err );
+		}
+	);
+	*/
+}
+
+
+/*
+ *
+ *	GLOBAL IMPORT FUNCTION
+ *
+ */
+
+
+exports.bulkInsurances = function(req, res, next) {
+
+    var insurance_id = '5eb8dc5a29421e8282037657';
+    // Read excel
+    readXlsxFile('./controllers/tmp/full-list.xlsx', { sheet: 2 }).then((data) => {
+        // Generate promises
+        var promises = [];
+        // Get insurances list
+        promises.push(Insurance.find());
+        // Get users list
+        promises.push(User.find());
+
+        // Remove all previous files by insurance
+        // promises.push(UserFile.deleteMany({ _insurance: '5eb8dc5a29421e8282037657' }));
+        // Remove insurance for user
+        //promises.push(User.update({}, { $pull: { _insurances: '5eb8dc5a29421e8282037657' } }, { multi: true }));
+
+
+
+        Promise.all(promises).then(
+            promise_result => {
+
+                // res.send({
+                //     data: 'ok'
+                // })
+                // return;
+
+                // Sort insurances by name => id
+                var insurance_ids = {};
+                promise_result[0].forEach(el => {
+                    insurance_ids[el.name] = el._id;
+                });
+                // Sort users by name => id
+                var user_ids = {};
+                promise_result[1].forEach(el => {
+                    user_ids[el.id_colaborador] = el._id;
+                });
+                // remove first line of excel
+                var headers = data.shift();
+                headers = headers.slice(4, headers.length);
+
+                var empty_user = data.filter(el => {
+                    return !user_ids[el[1]]
+                });
+                var empty_insurance = data.filter(el => {
+                    return !insurance_ids[el[3]]
+                });
+
+
+                // Sort all data
+                var files = data.map(el => {
+
+                    var item = {
+                        _user: user_ids[el[1]],
+                        _insurance: insurance_ids[el[3]],
+                        file: (el[2]) ? el[2].toLowerCase() : undefined,
+                        extra: {}
+                    };
+
+                    headers.forEach((key, index) => {
+                        item.extra[getSlug(key)] = String(el[index + 4]);
+                    });
+
+                    return item;
+                });
+
+                // Filter files with insurance and user
+                files = files.filter(el => {
+                    return el._user &amp;&amp; el._insurance;
+                });
+
+
+                // res.send({
+                //     empty_user: empty_user,
+                //     empty_insurance: empty_insurance,
+                //     inserted: files
+                // });
+                // return;
+
+
+
+
+                // Insert users insurance
+                var affected_users = files.map(el => el._user);
+
+                // Remove user previous insurance and add new insurance
+                User.update({ _id: { $in: affected_users } }, { $pull: { _insurances: '5eb8dc5a29421e8282037657' } }, { multi: true }).exec().then(() => {
+                    User.update({ _id: { $in: affected_users } }, { $push: { _insurances: '5eb8dc5a29421e8282037657' } }, { multi: true }).exec().then().catch();
+                }).catch((err) => {
+                    console.error(err);
+                });
+
+
+                UserFile.insertMany(files).then((docs) => {
+                    res.send({
+                        empty_user: empty_user,
+                        empty_insurance: empty_insurance,
+                        inserted: docs
+                    });
+                }).catch(err => {
+                    res.send({
+                        error: err
+                    });
+                });
+
+            }
+        ).catch(
+            err => {
+                res.send({
+                    error: err
+                });
+            }
+        );
+
+    }).catch((err) => {
+        res.send({ data: 'error', error: err });
+    })
+}
+
+
+
+exports.bulkUsers = function(req, res, next) {
+
+    var User = require('../models/user');
+
+    // File path.
+    readXlsxFile('./controllers/tmp/listado-colaboradores.xlsx').then((users) => {
+
+        users.shift();
+
+        users = users.filter(el => el[4]);
+
+        /*
+         **
+         **	Users
+         **
+         */
+
+        // Get nóminas
+        Paysheet.find({}).exec(function(err, nominas) {
+
+            if (err) {
+                res.send({ data: 'error', error: err });
+                return
+            } else {
+
+                var nom_ids = {};
+                nominas.forEach(el => {
+                    nom_ids[el.name] = el._id;
+                });
+
+
+                var bulkOps = users.map(el => ({
+                    updateOne: {
+                        filter: { email: el[4].toLowerCase() },
+                        // Where field is the field you want to update
+                        update: {
+                            $set: {
+                                id_colaborador: el[0],
+                                firstname: el[1],
+                                lastname: el[2],
+                                second_lastname: el[3],
+                                _paysheet: (nom_ids[el[5]]) ? nom_ids[el[5]] : null
+                            }
+                        },
+                        upsert: true
+                    }
+                }));
+
+                User.collection.bulkWrite(bulkOps)
+                    .then(results => res.send(results))
+                    .catch(err => res.send({ data: 'error', error: err }));
+
+            }
+
+        });
+
+    }).catch((err) => {
+        res.send({ data: 'error', error: err });
+    })
+}
+
+
+function onlyUnique(value, index, self) {
+    return self.indexOf(value) === index;
+}
+
+
+/****
+ * 
+ *  Import medical data
+ * 
+ */
+exports.importMedical = function(req, res, next) {
+
+    // Read excel
+    readXlsxFile('./controllers/tmp/medicos.xlsx', { sheet: 2 }).then((data) => {
+
+        var deleteCollection = false;
+
+        // Generate promises
+        var promises = [];
+
+
+        // Remove all previous files by insurance
+        if (deleteCollection) {
+            promises.push(Medical.deleteMany({}));
+        }
+
+
+        Promise.all(promises).then(
+            promise_result => {
+
+                // remove first line of excel
+                var headers = data.shift();
+                headers = headers.slice(11, headers.length);
+
+                // Sort all data
+                // Sort all data
+                var items = data.map(el => {
+
+                    var item = {
+                        tipo: el[0],
+                        divisional: el[1],
+                        estado: el[2],
+                        ciudad: el[3],
+                        rfc: el[4],
+                        razon_social: el[5],
+                        razon_comercial: el[6],
+                        direccion: el[7],
+                        colonia: el[8],
+                        cp: el[9],
+                        telefono: el[10],
+                        extra: {}
+                    };
+
+                    headers.forEach((key, index) => {
+                        item.extra[getSlug(key, { separator: '_' })] = String(el[index + 11]);
+                    });
+
+                    return item;
+                });
+
+
+
+                // res.send({
+                //     data: items
+                // });
+                // return;
+
+                Medical.insertMany(items).then((docs) => {
+                    res.send({
+                        data: items.length
+                    });
+                }).catch(err => {
+                    res.send({
+                        error: err
+                    });
+                });
+
+            }
+        ).catch(
+            err => {
+                res.send({
+                    error: err
+                });
+            }
+        );
+
+    }).catch((err) => {
+        res.send({ data: 'error', error: err });
+    })
+
+}
+exports.setGeolocationHospital = function(req, res, next) {
+
+    Medical.find({ tipo: 'HOSPITAL', geo: { $exists: false } }).limit(100).exec().then((rows) => {
+
+
+
+        rows = rows.map(el => {
+            el.extra.location = el.razon_comercial + ', ' + el.direccion + ', ' + el.colonia + ', ' + el.ciudad + ', ' + el.estado + ', CP ' + el.cp;
+            return el;
+        });
+
+
+
+        var promises = [];
+
+        rows.forEach(place => {
+            promises.push(googleMapsClient.geocode({ address: place.extra.location }).asPromise())
+        });
+
+        Promise.all(promises).then(places => {
+
+            var geo_promises = [];
+
+            places.forEach((val, index) => {
+
+                delete rows[index].extra.location;
+
+                if (val.json &amp;&amp; val.json.results &amp;&amp; val.json.results[0]) {
+
+                    var j_data = val.json.results[0];
+
+                    rows[index].g_address = {
+                        address: j_data.formatted_address,
+                        types: j_data.types
+                    };
+                    rows[index].geo = j_data.geometry.location
+
+                    geo_promises.push(rows[index].save());
+
+                }
+
+
+            });
+
+            Promise.all(geo_promises).then(places => {
+                res.send({
+                    data: rows
+                })
+            }).catch(err => {
+                console.log(err);
+                res.send({ data: 'error geo promises', error: err });
+            });
+
+        }).catch(err => {
+            console.log(err);
+            res.send({ data: 'error promises', error: err });
+        });
+
+
+    }).catch((err) => {
+        console.log(3);
+        res.send({ data: 'error', error: err });
+    })
+
+}
+exports.setGeolocationMedico = function(req, res, next) {
+
+    Medical.find({ tipo: { $ne: 'HOSPITAL' }, geo: { $exists: false } }).limit(1000).exec().then((rows) => {
+
+
+
+        rows = rows.map(el => {
+            el.extra.location = el.razon_comercial + ', ' + el.direccion + ', ' + el.colonia + ', ' + el.ciudad + ', ' + el.estado + ', CP ' + el.cp;
+            return el;
+        });
+
+
+
+        var promises = [];
+
+        rows.forEach(place => {
+            promises.push(googleMapsClient.geocode({ address: place.extra.location }).asPromise())
+        });
+
+        Promise.all(promises).then(places => {
+
+            var geo_promises = [];
+
+            places.forEach((val, index) => {
+
+                delete rows[index].extra.location;
+
+                if (val.json &amp;&amp; val.json.results &amp;&amp; val.json.results[0]) {
+
+                    var j_data = val.json.results[0];
+
+                    rows[index].g_address = {
+                        address: j_data.formatted_address,
+                        types: j_data.types
+                    };
+                    rows[index].geo = j_data.geometry.location;
+
+                    geo_promises.push(rows[index].save());
+
+                }
+
+
+            });
+
+            Promise.all(geo_promises).then(places => {
+                res.send({
+                    data: rows
+                })
+            }).catch(err => {
+                console.log(err);
+                res.send({ data: 'error geo promises', error: err });
+            });
+
+        }).catch(err => {
+            console.log(err);
+            res.send({ data: 'error promises', error: err });
+        });
+
+
+    }).catch((err) => {
+        console.log(3);
+        res.send({ data: 'error', error: err });
+    })
+
+}
+
+function transformDate(oldDate) {
+    if (!oldDate)
+        return undefined;
+    oldDate = oldDate.split('/');
+    if (oldDate.length != 3)
+        return undefined;
+    oldDate = ((oldDate[2] > 20) ? '19' + oldDate[2] : '20' + oldDate[2]) + '-' + oldDate[1] + '-' + oldDate[0];
+    return oldDate;
+}
+
+let available_collections = [
+    'Voltage',
+    'Sts',
+    'RegletaPdu',
+    'ReceptaclePdu',
+    'Wire',
+    'Carrier',
+    'Rack',
+    'Charola',
+    'Organizador',
+    'Pasacable',
+    'Datacenter',
+    'SalesforceProduct',
+    'Option'
+];
+let sortable_collections = [
+    'Location'
+];
+/***************************************
+ *
+ *
+ *	Catalogs function
+ *
+ *
+ ***************************************/
+
+exports.getCollection = function(req, res, next) {
+    /**
+     * Return a list of collection items
+     *
+     * returns List
+     **/
+
+    var Collection = require("../models/" + req.params.type)[req.params.collection];
+    var sort = {};
+    if (sortable_collections.indexOf(req.params.collection) != -1) {
+        sort = { order: 1 };
+    }
+    Collection.find({}, { '__v': 0 }).sort(sort).exec(function(err, data) {
+        res.send({ data: data });
+    })
+
+}
+
+exports.getFilterDatacenters = function(req, res, next) {
+    /**
+     * Return a list of collection items
+     *
+     * returns List
+     **/
+
+    var Collection = require("../models/" + req.params.type)[req.params.collection];
+    var sort = {};
+    var populate = [{
+        path: 'business',
+        populate: { path: 'locations' }
+    }];
+
+
+    if (sortable_collections.indexOf(req.params.collection) != -1) {
+        sort = { order: 1 };
+    }
+    Collection.find({}, { '__v': 0 }).sort(sort).exec(function(err, data) {
+
+        BusinessUser.findOne({ _id: req.user._id }).populate(populate).exec().then(businessUser => {
+
+            var business_datacenter_locations = data.filter(el => businessUser.business.locations.some(loc => loc.name == el.name));
+
+            res.send({ data: business_datacenter_locations });
+
+        }).catch(err => {
+            console.log(err);
+            next({ status: 200, message: 'Error saving item.', error: err });
+        });
+    })
+
+}
+
+exports.addCollection = function(req, res, next) {
+    /**
+     * Return a new collection item
+     *
+     * returns Item
+     **/
+
+    var Collection = require("../models/" + req.params.type)[req.params.collection];
+    var item = new Collection();
+
+    for (var key in req.body) {
+        item[key] = req.body[key];
+    }
+
+
+    item.save((err, data) => {
+        if (err || !data) {
+            console.log(err);
+            next({ status: 200, message: 'Error saving item.' });
+        } else {
+            res.send(data);
+        }
+    })
+
+}
+
+exports.updateCollectionById = function(req, res, next) {
+    /**
+     * Update collection item.
+     *
+     * returns Item
+     **/
+
+    var Collection = require("../models/" + req.params.type)[req.params.collection];
+
+    var item = {};
+
+    for (var key in req.body) {
+        if (key !== '_id')
+            item[key] = req.body[key];
+    }
+
+    Collection.findByIdAndUpdate(req.params.id, item, { new: true }).exec(function(err, data) {
+        if (err || !data) {
+            next({ status: 200, message: 'Error updating item.', error: common._handleError(err) });
+        } else {
+            res.send(data);
+        }
+    });
+
+}
+
+exports.deleteCollectionById = function(req, res, next) {
+    /**
+     * Return a item deleted status
+     *
+     * returns Deleted status
+     **/
+
+    var Collection = require("../models/" + req.params.type)[req.params.collection];
+
+    Collection.findByIdAndRemove(req.params.id).exec(function(err, data) {
+        if (err || !data) {
+            next({ status: 200, message: 'Error deleting item.', error: common._handleError(err) });
+        } else {
+            res.send(data);
+        }
+    })
+
+}
+
+/******
+ * 
+ * get app options
+ * 
+ */
+exports.getAppOptions = function(req, res, next) {
+    res.send({
+        data: config.options
+    })
+}
+
+
+
+/*******
+ * 
+ * 	All users functions
+ * 
+ */
+
+exports.getNotifications = function(req, res, next) {
+
+    var platform = req.params.platform || 'kasax';
+
+    var Notification = require('../models/notification');
+    /**
+     * Get user notifications
+     *
+     * returns token
+     **/
+    var filter = {};
+    var populate = [
+        { path: '_user', select: 'avatar firstname lastname' },
+        { path: '_business_user', select: 'avatar firstname lastname' }
+    ];
+    // Register business user device token
+    if (req.user.business) {
+        filter._business_user_recipients = req.user._id;
+    } else {
+        filter._user_recipients = req.user._id;
+    }
+    filter.platform = platform;
+    Notification.find(filter).select('title message params created_at _user _business_user').populate(populate).sort('-created_at').limit(50).exec(function(err, data) {
+        res.send({ data: data });
+    });
+
+}
+
+
+
+/*******
+ * 
+ * 	Get Exchange Rate
+ * 
+ */
+exports.getExchangeRate = function(req, res, next) {
+
+    common.getExchangeRate().then(
+        data => {
+            res.send(data);
+        }
+    ).catch(
+        err => {
+            console.log(err);
+            next({ status: 200, message: 'Error al obtener el tipo de cambio.' });
+        }
+    );
+
+}
+
+/*******
+ * 
+ * 	Get Log Data
+ * 
+ */
+exports.getLog = function(req, res, next) {
+
+    var Logitem = require('../models/log').Logitem;
+    var moment = require('moment');
+    /**
+     * Get user notifications
+     *
+     * returns token
+     **/
+
+    var filter = {
+        created: { $gte: moment(req.params.start).toDate(), $lte: moment(req.params.end).add(1, 'day').toDate() }
+    }
+
+    if (req.params.email != 'all') {
+        filter['request.email'] = { $regex: "^" + req.params.email }
+    }
+
+    Logitem.find(filter).sort('-created').exec(function(err, data) {
+        res.send({ data: data, req: filter });
+    });
+
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

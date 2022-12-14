@@ -1,0 +1,47 @@
+{
+  "name": "multitenant-back",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "nodemon ./bin/www",
+    "doc": "jsdoc -c jsdoc.json"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "bcrypt": "^5.0.0",
+    "body-parser": "^1.18.3",
+    "config": "^1.25.1",
+    "connect-multiparty": "^2.0.0",
+    "cookie-parser": "~1.4.3",
+    "debug": "~2.6.0",
+    "exceljs": "git+https://github.com/exceljs/exceljs.git",
+    "express": "^4.16.4",
+    "google-auth-library": "^8.0.2",
+    "hbs": "^4.0.2",
+    "helmet": "^3.21.2",
+    "jsdoc": "^3.6.10",
+    "jsonwebtoken": "^8.5.1",
+    "jwt-simple": "^0.5.1",
+    "lodash": "^4.17.20",
+    "mailgun-js": "^0.6.7",
+    "moment": "^2.29.1",
+    "mongoose": "^5.10.9",
+    "mongoose-pagination": "^1.0.0",
+    "morgan": "^1.9.1",
+    "node-pushnotifications": "^2.0.3",
+    "pdf-to-excel": "^0.3.2",
+    "pdf2json": "^1.2.5",
+    "puppeteer": "^11.0.0",
+    "serve-favicon": "^2.5.0",
+    "sharp": "^0.25.4",
+    "speakingurl": "^13.0.0",
+    "ssh2-sftp-client": "^8.0.0",
+    "swagger-ui-express": "^1.0.6",
+    "uuid": "^8.3.2",
+    "xlsx": "^0.18.5",
+    "zip-dir": "^2.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.16"
+  }
+}

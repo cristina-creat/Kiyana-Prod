@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/tenant.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/tenant.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>const config = require('config');
+const fs = require('fs');
+const Tenant = require("../models/tenant");
+const jwt = require('../services/jwt');
+var UserPermission = require('../models/user_permission');
+var UserRole = require('../models/user_role');
+var getSlug = require('speakingurl');
+//const common = require("../services/common");
+
+/***************************************
+ *
+ *
+ *	Permisions function
+ *
+ *
+ ***************************************/
+
+ const getPermissions = (req, res) => {
+  /**
+   * Return a list of user permisions
+   *
+   * returns List
+   **/
+  UserPermission.find({}).sort({ name: 1 }).exec((err, data) => {
+      res.send({ data: data });
+  });
+}
+
+const addPermission = (req, res, next) => {
+  /**
+   * Creates a new permission.
+   *
+   * slug Permission 
+   * returns Permission
+   **/
+
+  var permission = new UserPermission();
+  var params = req.body;
+  if (!params.name)
+      res.send({ message: 'Field "name" is required' });
+  permission.name = params.name;
+  permission.slug = (params.slug) ? getSlug(params.slug) : getSlug(params.name);
+
+  permission.save((err, permissionStored) => {
+      if (err) {
+          next({ status: 200, message: 'Permission already exists.' });
+      } else {
+          if (permissionStored)
+              res.send(permissionStored);
+          else {
+              next({ status: 200, message: 'Error saving permission.' });
+          }
+      }
+  });
+
+}
+
+const deletePermissionById = (req, res, next) => {
+  /**
+   * Delete permission.
+   *
+   * id Long ID of th permission to delete
+   * no response value expected for this operation
+   **/
+
+  UserPermission.remove({ _id: req.params.id }, (err, permissionRemoved) => {
+      if (err) {
+          next({ status: 200, message: 'Permission doesnt exists.' });
+      } else {
+          if (permissionRemoved)
+              res.send(permissionRemoved);
+          else {
+              next({ status: 200, message: 'Error deleting permission.' });
+          }
+      }
+  });
+
+}
+
+/***************************************
+*
+*
+*	Roles functions
+*
+*
+***************************************/
+
+const getRoles = (req, res) => {
+  /**
+   * Return a list of user permisions
+   *
+   * returns List
+   **/
+  UserRole.find({ _tenant: req.params.tenant }).exec(function(err, data) {
+      res.send({ data: data });
+  });
+}
+
+const addRole = (req, res, next) => {
+  /**
+   * Creates a new permission.
+   *
+   * slug Permission 
+   * returns Permission
+   **/
+  var role = new UserRole();
+  var params = req.body;
+  if (!params.name)
+      res.send({ message: 'Field "name" is required' });
+  role.name = params.name;
+  role.slug = (params.slug) ? req.tenant + getSlug(params.slug) : req.tenant + getSlug(params.name);
+  role.permissions = params.permissions;
+  role._tenant = req.params.tenant;
+
+  role.save((err, roleStored) => {
+      if (err) {
+          next({ status: 200, message: 'Role already exists.', error: err });
+      } else {
+          if (roleStored)
+              res.send(roleStored);
+          else {
+              next({ status: 200, message: 'Error saving role.' });
+          }
+      }
+  });
+}
+
+const getRoleById = (req, res, next) => {
+  /**
+   * Return a list of user roles
+   *
+   * id Long Id of the role to retrive information
+   * returns Role
+   **/
+  UserRole.findById(req.params.id).exec((err, role) => {
+      if (err) {
+          next({ status: 200, message: 'Role doesnt exists.' });
+      } else {
+          if (role)
+              res.send(role);
+          else {
+              next({ status: 200, message: 'Error retriving role.' });
+          }
+      }
+  });
+
+}
+
+const updateRoleById = (req, res, next) => {
+  /**
+   * Update permission.
+   *
+   * id Long ID of the permission to update
+   * returns Role
+   **/
+  var role = {};
+  var params = req.body;
+  if (!params.name)
+      res.send({ message: 'Field "name" is required' });
+  role.name = params.name;
+  role.slug = (params.slug) ? req.tenant + getSlug(params.slug) : req.tenant + getSlug(params.name);
+  role.permissions = params.permissions;
+
+  UserRole.findOneAndUpdate({_id: req.params.id}, { $set: role }, { new: true }).exec((err, role) => {
+      if (err) {
+          next({ status: 200, message: 'Role doesnt exists.', error: err });
+      } else {
+          if (role)
+              res.send(role);
+          else {
+              next({ status: 200, message: 'Error updating role.' });
+          }
+      }
+  });
+
+}
+
+const deleteRoleById = (req, res, next) => {
+  /**
+   * Deleted permission.
+   *
+   * id Long ID of the permission to delete
+   * returns Role
+   **/
+  UserRole.remove({ _tenant: req.tenant, _id: req.params.id }, (err, roleRemoved) => {
+      if (err) {
+          next({ status: 200, message: 'Role doesnt exists.' });
+      } else {
+          if (roleRemoved)
+              res.send(roleRemoved);
+          else {
+              next({ status: 200, message: 'Error deleting role.' });
+          }
+      }
+  });
+
+}
+
+
+const getAllTenants = (req, res) => {
+  Tenant.find({}).exec((err, data) => {
+    if ( err ) {
+      next({ status: 500, message: 'Error loading tenant.', error: err });
+    } else {
+      let tenants = data;
+      // Generate token if user is admin
+      if ( req.user.role == config.roles.admin ) {
+        tenants = tenants.map( tn => {
+          tn = tn.toObject();
+          tn.token = jwt.createToken({
+            _user: req.user._id,
+            _tenant: tn._id,
+            key: req.user.secret_key
+        });;
+          return tn;
+        })
+      }
+      res.send({
+        data: tenants
+      });
+    }
+  });
+};
+
+
+const getTenantById = (req, res, next)=>{
+  const {id} = req.params;
+  Tenant.findById(id).exec((err, tenant) => {
+    if (err) {
+        next({ status: 200, message: 'tenant doesnt exists.' });
+    } else {
+        if (tenant)
+            res.json(tenant);
+        else {
+            next({ status: 200, message: 'Error retriving tenant.' });
+        }
+    }
+});
+}
+
+const createTenant = (req, res, next) => {
+  const tenant = new Tenant();
+  const params = req.body;
+  Object.keys(params).forEach((key) => {
+    if ( params[key] ) {
+      tenant[key] = params[key];
+    }
+  });
+  tenant.save((err, userStored) => {
+    if (err) {
+      next({ status: 200, message: "La empresa ya existe.", error: err });
+    } else {
+      console.log( userStored)
+      if (userStored) res.send(userStored);
+      else {
+        next({ status: 200, message: "Error al guardar la información." });
+      }
+    }
+  });
+};
+
+const updateTenantById = (req, res, next)=>{
+    let tenant = {};
+    const data = req.body;
+    const {id} = req.params;
+    
+    Object.keys(data).forEach(key => {
+        tenant[key] = data[key];
+    });
+
+    Tenant.findByIdAndUpdate(id, { $set: tenant }, { new: true }).exec((err, tenant) => {
+        if (err) {
+            next({ status: 200, message: 'Error updating tenant.', error: err });
+        } else {
+            if (tenant)
+                res.send(tenant);
+            else {
+                next({ status: 200, message: 'Error updating tenant.' });
+            }
+        }
+    });
+}
+
+const updateTenantAvatarById = (req, res, next) => {
+  /**
+   * Update tenant.
+   *
+   * id Long ID of th tenant to update
+   * returns Tenant
+   **/
+  
+  if (!req.files || !req.files.avatar) {
+      next({ status: 200, message: 'File "avatar" is required.', error: 'Not file uploaded' });
+      return;
+  }
+
+   var filepath = req.files.avatar.path;
+   var upload_tmp = config.upload_dir_tmp.replace('./', '');
+   var filename = filepath.replace(upload_tmp, '');
+   filepath = config.upload_avatar_dir + filename;
+   fs.renameSync(req.files.avatar.path, filepath);
+   
+  Tenant.findByIdAndUpdate(req.params.id, { $set: { img: filename } }, { new: true }).exec((err, tenant) => {
+      if (err) {
+          next({ status: 200, message: 'Error updating tenant.', error: err });
+      } else {
+          if (tenant)
+              res.send(tenant);
+          else {
+              next({ status: 200, message: 'Error updating tenant.' });
+          }
+      }
+  });
+  
+}
+
+const deleteTenantById = (req, res, next)=>{
+  Tenant.remove({ _id: req.params.id }, (err, TenantRemoved) => {
+    if (err) {
+        next({ status: 200, message: 'Tenant doesnt exists.' });
+    } else {
+        if (TenantRemoved)
+            res.json(TenantRemoved);
+        else {
+            next({ status: 200, message: 'Error deleting Tenant.' });
+        }
+    }
+});
+}
+
+
+
+module.exports = {
+  getPermissions,
+  addPermission,
+  deletePermissionById,
+  getRoles,
+  addRole,
+  getRoleById,
+  updateRoleById,
+  deleteRoleById,
+
+  getAllTenants,
+  createTenant,
+  updateTenantById,
+  updateTenantAvatarById,
+  getTenantById,
+  deleteTenantById
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

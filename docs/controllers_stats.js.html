@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/stats.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/stats.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+const bcrypt = require('bcrypt');
+var User = require('../models/user');
+var fs = require('fs');
+var config = require('config');
+var moment = require('moment');
+
+
+/***************************************
+*
+*
+*	Stats functions
+*
+*
+***************************************/
+
+exports.getGlobalStats = function(req,res){
+	/**
+	* Return a list of Global Stats
+	*
+	* returns Object
+	**/
+
+	var promises = [];
+	// Users count
+	promises.push(User.count({ '_tenants._tenant': req.tenant }));
+	/*
+	// Beneficiaries count
+	promises.push(Beneficiary.count({}));
+	// Grouped beneficiaries count
+	promises.push(Beneficiary.aggregate([
+		{ $group: { _id: "$_user" } },
+		{ $count: "users" }
+	]));
+	*/
+	
+	// Users used app counter
+	promises.push(User.count({'_tenants._tenant': req.tenant, last_login: {$exists: true, $ne: null} }));
+
+	// Beneficiaries used app counter
+	//promises.push(Beneficiary.count({last_login: {$exists: true, $ne: null} }));
+
+	Promise.all( promises ).then(
+		result => {
+			res.send( { data: {
+				users: result[0],
+				//beneficiaries: result[1],
+				//users_w_beneficiaries: (result[2] &amp;&amp; result[2][0]) ? result[2][0].users : 0,
+				users_w_login: result[1],
+				//beneficiaries_w_login: result[4]
+			} } );
+		}
+	).catch(
+		err => {
+			res.send( err );
+		}
+	);
+
+
+}	
+
+
+exports.getPeriodStats = function(req,res){
+	/**
+	* Return a list of Global Stats
+	*
+	* returns Object
+	**/
+
+	var promises = [];
+	// Users count
+	var user_query = [
+		{
+			$match: {
+				_tenant: req.tenant,
+				created_at: {
+					$gte: moment(req.params.start).startOf('day').toDate(),
+					$lte: moment(req.params.end).endOf('day').toDate()
+				}
+			}
+		},
+		{
+			$group: {
+				_id : "$_user"
+			}
+		},
+		{
+			$count: "count"
+		}
+	];
+	promises.push(AccessLog.aggregate(user_query));
+	
+	
+
+	// Activity sort
+	var activity_query = [
+		{
+			$match: {
+				_tenant: req.tenant,
+				created_at: {
+					$gte: moment(req.params.start).startOf('day').toDate(),
+					$lte: moment(req.params.end).endOf('day').toDate()
+				}
+			}
+		},
+		{
+			$project: {
+				module: 1,
+				submodule: 1,
+				item: { $concat: [ "$module", "-", "$submodule" ] }
+			} 
+		},
+		{
+			$group: {
+				_id : "$item",
+				module: { $first: "$module" },
+				submodule: { $first: "$submodule" },
+				count:{$sum:1}
+			}
+		},
+		{
+			$project: {
+				module: 1,
+				submodule: 1,
+				count: 1,
+				_id: 0
+			} 
+		},
+		{
+			$sort: {
+				count: -1
+			}
+		}
+	]
+	promises.push(Logitem.aggregate(activity_query));
+
+	// Activity day
+	var activity_day_query = [
+		{
+			$match: {
+				_tenant: req.tenant,
+				created_at: {
+					$gte: moment(req.params.start).startOf('day').toDate(),
+					$lte: moment(req.params.end).endOf('day').toDate()
+				}
+			}
+		},
+		{
+			$project: {
+				module: 1,
+				submodule: 1,
+				yearMonthDay: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } },
+			} 
+		},
+		{
+			$group: {
+				_id : "$yearMonthDay",
+				count:{$sum:1}
+			}
+		},
+		{
+			$project: {
+				count: 1
+			} 
+		},
+		{
+			$sort: {
+				yearMonthDay: 1
+			}
+		}
+	]
+	promises.push(Logitem.aggregate(activity_day_query));
+	
+	// Activity user type
+	var activity_user_query = [
+		{
+			$match: {
+				_tenant: req.tenant,
+				created_at: {
+					$gte: moment(req.params.start).startOf('day').toDate(),
+					$lte: moment(req.params.end).endOf('day').toDate()
+				},
+				_user: {
+					$exists: true
+				}
+			}
+		},
+		{
+			$count: "count"
+		}
+	]
+	promises.push(Logitem.aggregate(activity_user_query));
+
+	
+	// Activity empty type
+	var activity_user_query = [
+		{
+			$match: {
+				_tenant: req.tenant,
+				created_at: {
+					$gte: moment(req.params.start).startOf('day').toDate(),
+					$lte: moment(req.params.end).endOf('day').toDate()
+				},
+				_beneficiary: {
+					$exists: false
+				},
+				_user: {
+					$exists: false
+				}
+			}
+		},
+		{
+			$count: "count"
+		}
+	]
+	promises.push(Logitem.aggregate(activity_user_query));
+
+	
+
+	
+
+	Promise.all( promises ).then(
+		result => {
+			res.send( { data: {
+				users: (result &amp;&amp; result[0] &amp;&amp; result[0][0] &amp;&amp; result[0][0].count) ? result[0][0].count : 0,
+				activity_module: result[1],
+				activity_day: result[2],
+				activity_user_count: {
+					user: (result &amp;&amp; result[3] &amp;&amp; result[3][0] &amp;&amp; result[3][0].count) ? result[3][0].count : 0,
+					empty: (result &amp;&amp; result[4] &amp;&amp; result[4][0] &amp;&amp; result[4][0].count) ? result[4][0].count : 0
+				}
+			} } );
+		}
+	).catch(
+		err => {
+			res.send( err );
+		}
+	);
+
+
+}	</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

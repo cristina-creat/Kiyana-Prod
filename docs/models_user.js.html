@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: models/user.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: models/user.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module models/catalog */
+
+/**
+ * @requires mongoose - Require mongoose library wich includes main database handling
+ */
+var mongoose = require('mongoose');
+
+/** @type {mongoose.Schema} */
+var Schema = mongoose.Schema;
+
+/**
+ * @class User - Stores user information - One user may be assigned to a multiple tenants
+ * */
+var UserSchema = Schema({
+    firstname: { type: String },
+    lastname: { type: String },
+    email: { type: String, unique: true, required: true, default: function() { return (Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16))+'@future.com.mx' }},
+    password: { type: String, select: false },
+    avatar: { type: String },
+    sexo: { type: String },
+    extradata: [{ type: Schema.Types.Mixed }],
+    device_tokens: [{ type: String }],
+    secret_key: { type: String, required: true, select: false, default: function() { return (Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16)) } },
+    last_login: { type: Date },
+    _tenants: [ new Schema({
+        _tenant: {type: Schema.ObjectId, ref: 'Tenant'},
+        id_colaborador: { type: String },
+        contact_phone: { type: String },
+        director: { type: Boolean, required: true, default: false },
+        position: { type: String },
+        rango: { type: Number },
+        admission_date: { type: String },
+        division: { type: String },
+        location: { type: String },
+        _manager: { type: Schema.ObjectId, ref: 'User' },
+        _role: { type: Schema.ObjectId, ref: 'UserRole', required: true },
+        _paysheet: { type: Schema.ObjectId, ref: 'Paysheet' },
+        _insurances: [{ type: Schema.ObjectId, ref: 'Insurance' }],
+        active: { type: Boolean, required:true, default: true },
+    })],
+    role: { type: String, required: true, default: 'Subscriber' }, // Use Admin for master access
+    created_at: { type: Date, required:true, default: Date.now },
+    last_update: { type: Date, required:true, default: Date.now }
+});
+
+/** Exports already created Schemas as mongoose models */
+module.exports = mongoose.model('User', UserSchema);</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

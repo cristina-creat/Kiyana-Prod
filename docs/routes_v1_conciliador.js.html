@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: routes/v1/conciliador.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: routes/v1/conciliador.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module routes/v1/catalog */
+
+/**
+ * @requires access - Require access middlewayre wich handle permissions before controller excecution
+ * @requires ConciliadorController - Require Conciliador controller to link functionality
+ */
+const access = require('../../middlewares/permissions');
+const ConciliadorController = require ('../../controllers/conciliador');
+
+/** Exports all routing functions to be used inside main app routing */
+module.exports = function (router){
+    
+    /**
+     * Route serving catalog data by name.
+     * @name get/conciliador
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} getConciliaciones - Catalog controller function.
+     */
+    router.get('/conciliador', access.permit('admin-conciliaciones-read'), ConciliadorController.getConciliaciones );
+    
+    /**
+     * Route serving conciliaciones list.
+     * @name post/catalog/upload-file
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {callback} middleware - Express middleware.
+     * @param {function} addFileCatalog - Catalog controller function.
+     */
+    router.post('/conciliador', access.permit('admin-conciliaciones-create'), ConciliadorController.addConciliacion );
+    
+    /**
+     * Route serving single conciliacion results by ID.
+     * @name get/conciliador/:id
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} getConciliacionResults - Catalog controller function.
+     */
+    router.get('/conciliador/:id', access.permit('admin-conciliaciones-read'), ConciliadorController.getConciliacionResults );
+
+    /**
+     * Route serving file to download result for a single conciliacion.
+     * @name get/conciliador/:id/file-download/:id_result/:filename
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/catalog
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} getCatalog - Catalog controller function.
+     */
+    router.get('/conciliador/:id/file-download/:result_id/:filename', access.permit('admin-conciliaciones-read'), ConciliadorController.getConciliacionFile );
+    
+    /**
+     * Route that regenerates conciliacion by ID.
+     * @name get/conciliador/:id/sync
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} doConciliacion - Catalog controller function.
+     */
+    router.get('/conciliador/:id/sync', access.permit('admin-conciliaciones-create'), ConciliadorController.doConciliacion );
+    
+    /**
+     * Route that set queue item in pending by conciliacion ID and queue ID.
+     * @name get/conciliador/:id/reset-queue/:queue_id
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} resetQueueById - Catalog controller function.
+     */
+    router.get('/conciliador/:id/reset-queue/:queue_id', access.permit('admin-conciliaciones-create'), ConciliadorController.resetQueueById );
+    
+    /**
+     * Route that delete conciliacion and queues by conciliacion ID.
+     * @name delete/conciliador/:id
+     * @middleware [access:permit]
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} deleteConciliacionById - Catalog controller function.
+     */
+    router.delete('/conciliador/:id', access.permit('admin-conciliaciones-delete'), ConciliadorController.deleteConciliacionById );
+    
+    /**
+     * Public route that excecute current pending queue in background.
+     * @name get/crons/proccess-queue
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} proccessQueue - Catalog controller function.
+     */
+    router.get('/crons/proccess-queue', ConciliadorController.processQueue );
+
+    /**
+     * Public route that try to conciliar in background items where all queues are completed.
+     * @name get/crons/conciliar
+     * @function
+     * @memberof module:controllers/conciliador
+     * @inner
+     * @param {string} path - Express path
+     * @param {function} doConciliacion - Catalog controller function.
+     */
+    router.get('/crons/conciliar', ConciliadorController.doConciliacion );
+
+
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

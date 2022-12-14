@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: middlewares/permissions.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: middlewares/permissions.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+/** @module middleware/permission */
+
+/**
+ * @requires config - Require config wich includes main environment configuration
+ */
+var config = require('config');
+
+
+/**
+ * Validate user permissions middleware
+ *
+ * @param {String} permission - Slug permission that will be tested for authorization
+ * @returns {function}
+ * @inner
+ * @param {Express.Request} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ */
+exports.permit = function(permission) {
+  return function(req, res, next) {
+        /** Validate user has assigned a role and role has a permissions array */
+        if(!req.user || !req.user._tenant || !req.user._tenant._role || !req.user._tenant._role.permissions){
+            return res.status(403).send({message:'Unauthorized access. User not logged in.'});
+        }
+        /** user_permissions - temporary var to store permissions slugs */
+        var user_permissions = req.user._tenant._role.permissions;
+        /** Test current permissions lists included required permission OR have a MAIN admin role */
+        if( user_permissions.indexOf(permission)==-1 &amp;&amp; req.user.role != config.roles.admin ){
+            return res.status(403).send({message:'Unauthorized access. ( '+permission+' is required)'});
+        }
+        next();
+    }
+}
+
+/**
+ * Validate user permissions middleware, must pass at least one permission
+ *
+ * @param {Array&lt;String>} permissions - Array of slugs permissions that will be tested for authorization
+ * @returns {function}
+ * @inner
+ * @param {Express.Request} req
+ * @param {Express.Response} res
+ * @param {Function} next
+ */
+exports.permitAny = function(permissions) {
+  return function(req, res, next) {
+        /** If is MAIN ADMIN role, let it pass */
+        if( req.user.role == config.roles.admin ) {
+            return next();
+        }
+
+        /** auth - Variable to let us know if some permission is available for user */
+        var auth = false;
+        
+        /** Validate user has assigned a role and role has a permissions array */
+        if(!req.user || !req.user._tenant || !req.user._tenant._role || !req.user._tenant._role.permissions){
+            return res.status(403).send({message:'Unauthorized access.'});
+        }
+        
+        /** user_permissions - temporary var to store permissions slugs */
+        var user_permissions = req.user._tenant._role.permissions;
+        /** Test each required permission agains current user permissions */
+        permissions.forEach( per => {
+            // If some permission is assigned, let user pass the middleware
+            if(!auth &amp;&amp; user_permissions.indexOf(per)!==-1 ){
+                auth = true;
+                return next();
+            }
+        });
+        /** If none of the permissions was assigned, return error and finish middleware */
+        if(!auth)
+            return res.status(403).send({message:'Unauthorized access.', permissions: permissions});
+        
+    }
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-controllers_auth.html">controllers/auth</a></li><li><a href="module-controllers_catalog.html">controllers/catalog</a></li><li><a href="module-controllers_conciliacion.html">controllers/conciliacion</a></li><li><a href="module-middleware_authentication.html">middleware/authentication</a></li><li><a href="module-middleware_permission.html">middleware/permission</a></li><li><a href="module-models_catalog.html">models/catalog</a></li><li><a href="module-routes_v1_auth.html">routes/v1/auth</a></li><li><a href="module-routes_v1_catalog.html">routes/v1/catalog</a></li><li><a href="module-routes_v1_files.html">routes/v1/files</a></li><li><a href="module-routes_v1_stats.html">routes/v1/stats</a></li><li><a href="module-routes_v1_tenant.html">routes/v1/tenant</a></li><li><a href="module-routes_v1_tools.html">routes/v1/tools</a></li><li><a href="module-routes_v1_users.html">routes/v1/users</a></li></ul><h3>Classes</h3><ul><li><a href="module-models_catalog-ConciliacionResultSchema.html">ConciliacionResultSchema</a></li><li><a href="module-models_catalog-ConciliacionSchema.html">ConciliacionSchema</a></li><li><a href="module-models_catalog-CredencialChubb.html">CredencialChubb</a></li><li><a href="module-models_catalog-CredencialHDI.html">CredencialHDI</a></li><li><a href="module-models_catalog-CredencialQualitas.html">CredencialQualitas</a></li><li><a href="module-models_catalog-QueueQuerySchema.html">QueueQuerySchema</a></li><li><a href="module-models_catalog-SicaSchema.html">SicaSchema</a></li><li><a href="module-models_catalog-TenantSchema.html">TenantSchema</a></li><li><a href="module-models_catalog-UserPasswordSchema.html">UserPasswordSchema</a></li><li><a href="module-models_catalog-UserPermissionSchema.html">UserPermissionSchema</a></li><li><a href="module-models_catalog-UserRoleSchema.html">UserRoleSchema</a></li><li><a href="module-models_catalog-UserSchema.html">UserSchema</a></li></ul><h3>Global</h3><ul><li><a href="global.html#express">express</a></li><li><a href="global.html#hdiTransformPDFToXLSX">hdiTransformPDFToXLSX</a></li><li><a href="global.html#opts">opts</a></li><li><a href="global.html#router">router</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#string_connection">string_connection</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.10</a> on Mon Jun 06 2022 17:10:58 GMT-0500 (hora de verano central)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
